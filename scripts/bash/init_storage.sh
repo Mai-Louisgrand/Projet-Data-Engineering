@@ -1,10 +1,11 @@
 #!/bin/bash
 # ============================================================
-# Script : init_storage.sh
 # Objectif : Initialiser la couche de stockage du pipeline data
-#   - Création des dossiers et fichiers SQL si inexistants
+#   - Création des dossiers ddl/ dml/ si inexistants
 #   - Vérification existence des dossiers data/processed
-#   - Vérification accès PostgreSQL et initialisation DDL
+#   - Vérification accès PostgreSQL
+#   - Initialisation DDL
+#   - Exécution DML peuplement dim date
 #
 # Usage :
 #   bash scripts/bash/init_storage.sh
@@ -21,31 +22,21 @@ PROJECT_ROOT=$(pwd)
 DATA_PROCESSED_PATH="$PROJECT_ROOT/data/processed/owid_covid"
 POSTGRES_DDL_PATH="$PROJECT_ROOT/src/storage/postgres/ddl"
 POSTGRES_DML_PATH="$PROJECT_ROOT/src/storage/postgres/dml"
-POSTGRES_INIT_SCRIPT="$POSTGRES_DDL_PATH/001_create_schema.sql"
 
 # Credentials PostgreSQL (docker-compose)
 PGUSER="data"
 PGPASSWORD="data"
-PGDATABASE="datadb"
+PGDATABASE="covid_dw"
 PGHOST="localhost"
 PGPORT=5432
 export PGPASSWORD=$PGPASSWORD
 
 # ------------------------------------------------------------
-# Création de la structure de fichiers si nécessaire
+# Création de la structure de dossiers si nécessaire
 # ------------------------------------------------------------
-echo "Vérification / création des dossiers et fichiers SQL..."
+echo "Vérification / création des dossiers ddl et dml si inexistant..."
 
 mkdir -p src/storage/postgres/{ddl,dml}
-
-# Fichiers SQL : création si inexistants
-[ -f "$POSTGRES_DDL_PATH/001_create_schema.sql" ] || touch "$POSTGRES_DDL_PATH/001_create_schema.sql"
-[ -f "$POSTGRES_DDL_PATH/002_create_dimensions.sql" ] || touch "$POSTGRES_DDL_PATH/002_create_dimensions.sql"
-[ -f "$POSTGRES_DDL_PATH/003_create_fact_tables.sql" ] || touch "$POSTGRES_DDL_PATH/003_create_fact_tables.sql"
-[ -f "$POSTGRES_DML_PATH/010_insert_data.sql" ] || touch "$POSTGRES_DML_PATH/010_insert_data.sql"
-
-# README : création si inexistants
-[ -f src/storage/postgres/README.md ] || touch src/storage/postgres/README.md
 
 echo "Structure de stockage prête."
 
@@ -82,16 +73,35 @@ done
 echo "PostgreSQL prêt et accessible"
 
 # ------------------------------------------------------------
-# Initialisation PostgreSQL
+# Initialisation PostgreSQL : exécutions des scripts DDL
 # ------------------------------------------------------------
-echo "Initialisation de PostgreSQL..."
+echo "Initialisation des schémas et tables PostgreSQL..."
 
-if [ -f "$POSTGRES_INIT_SCRIPT" ]; then
-    psql -U $PGUSER -h $PGHOST -p $PGPORT -d $PGDATABASE -f "$POSTGRES_INIT_SCRIPT"
-    echo "Schéma PostgreSQL initialisé."
+for sql_file in "$POSTGRES_DDL_PATH"/0*_*.sql; do
+    if [ -f "$sql_file" ]; then
+        echo "Exécution de $sql_file ..."
+        psql -U $PGUSER -h $PGHOST -p $PGPORT -d $PGDATABASE -f "$sql_file"
+    else
+        echo "Fichier $sql_file introuvable, étape ignorée."
+    fi
+done
+
+echo "DDL PostgreSQL exécutés."
+
+# ------------------------------------------------------------
+# Population de la dimension date
+# ------------------------------------------------------------
+echo "Peuplement de la dimension date..."
+
+DIM_DATE_SQL="$POSTGRES_DML_PATH/010_insert_dim_date.sql"
+
+if [ -f "$DIM_DATE_SQL" ]; then
+    echo "Exécution du DML pour peupler dim_date : $DIM_DATE_SQL ..."
+    psql -U $PGUSER -h $PGHOST -p $PGPORT -d $PGDATABASE -f "$DIM_DATE_SQL"
+    echo "Population de dim_date terminée avec succès."
 else
-    echo "Script PostgreSQL non trouvé : $POSTGRES_INIT_SCRIPT"
-    echo "Étape PostgreSQL ignorée."
+    echo "Fichier DML dim_date introuvable : $DIM_DATE_SQL"
+    echo "Étape ignorée."
 fi
 
 # ------------------------------------------------------------
