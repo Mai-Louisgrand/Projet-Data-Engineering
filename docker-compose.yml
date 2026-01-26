@@ -22,6 +22,9 @@ services:
       KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"  # pas d’auto-création de topics
+    volumes:
+      - kafka-data:/var/lib/kafka/data
 
 # traitement distribué
   spark-master:
@@ -29,6 +32,9 @@ services:
     container_name: spark-master
     environment:
       - SPARK_MODE=master
+      - RUNNING_IN_DOCKER=1
+    volumes:
+      - ./:/opt/app
     ports:
       - "7077:7077"
       - "8081:8080"
@@ -41,7 +47,10 @@ services:
       - spark-master
     environment:
       - SPARK_MODE=worker
+      - RUNNING_IN_DOCKER=1
       - SPARK_MASTER_URL=spark://spark-master:7077
+    volumes:
+      - ./:/opt/app
     command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.worker.Worker", "spark://spark-master:7077"]
 
 # stockage
@@ -51,14 +60,18 @@ services:
     environment: # credentials simplifiés pour un environnement local de développement
       POSTGRES_USER: data
       POSTGRES_PASSWORD: data
-      POSTGRES_DB: datadb
+      POSTGRES_DB: covid_dw
     ports:
       - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
   mongo:
     image: mongo:6
     container_name: mongo
     ports:
       - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
 
 # orchestration	
   airflow-db:
@@ -82,6 +95,7 @@ services:
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
     volumes:
       - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
     ports:
       - "8080:8080"
     command: webserver
@@ -97,7 +111,11 @@ services:
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
     volumes:
       - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
     command: scheduler
 
 volumes:
   airflow_db:
+  kafka-data:
+  postgres_data:
+  mongo-data:
