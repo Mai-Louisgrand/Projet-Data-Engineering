@@ -10,4 +10,4 @@ POSTGRES_CONFIG = {
 }
 
 # Table staging pour écriture des données de streaming
-STAGING_TABLE = "staging.stg_owid_vaccination_stream"
+STAGING_TABLE = "staging.stg_owid_covid"
