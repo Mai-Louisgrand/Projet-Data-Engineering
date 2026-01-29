@@ -41,4 +41,6 @@ JOIN dim.dim_date dt
     ON s.date = dt.date_value
 
 WHERE s.iso_code IS NOT NULL
-  AND s.date IS NOT NULL;
+  AND s.date IS NOT NULL
+
+ON CONFLICT (location_id, date_id) DO NOTHING;
