@@ -34,7 +34,6 @@ def per_hundred(metric_col: str):
     :param metric_col: Column name containing the metric to normalize
     :return: Column expression with normalized values
     '''
-    # 
     return (
         F.when(
             (F.col(metric_col).isNotNull()) &
