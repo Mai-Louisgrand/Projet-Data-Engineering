@@ -88,7 +88,9 @@ services:
       - airflow_db:/var/lib/postgresql/data
 
   airflow-webserver:
-    image: apache/airflow:2.9.1
+    build:
+      context: ./docker
+      dockerfile: Dockerfile.airflow
     container_name: airflow-webserver
     depends_on:
       - airflow-db
@@ -96,16 +98,21 @@ services:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-db:5432/airflow
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      PYTHONPATH: /opt/airflow # pour les import src dans scripts python
     volumes:
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/logs:/opt/airflow/logs:cached
       - ./src:/opt/airflow/src # accès code métier depuis Airflow
+      - ./scripts:/opt/airflow/scripts # accès scripts bash depuis Airflow
+      - ./data:/opt/airflow/data # accès data
     ports:
       - "8080:8080"
     command: "airflow webserver"
 
   airflow-scheduler:
-    image: apache/airflow:2.9.1
+    build:
+      context: ./docker
+      dockerfile: Dockerfile.airflow
     container_name: airflow-scheduler
     depends_on:
       - airflow-db
@@ -113,10 +120,13 @@ services:
       AIRFLOW__CORE__EXECUTOR: LocalExecutor
       AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-db:5432/airflow
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      PYTHONPATH: /opt/airflow # pour les import src dans scripts python
     volumes:
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/logs:/opt/airflow/logs:cached
       - ./src:/opt/airflow/src # accès code métier depuis Airflow
+      - ./scripts:/opt/airflow/scripts # accès scripts bash depuis Airflow
+      - ./data:/opt/airflow/data # accès data
     command: scheduler
 
 volumes:
