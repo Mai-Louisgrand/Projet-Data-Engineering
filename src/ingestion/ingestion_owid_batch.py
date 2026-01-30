@@ -11,7 +11,7 @@ import requests # to download remote files
 from pathlib import Path
 from datetime import datetime, timezone
 import logging
-from config import RAW_DATA_PATH, LOG_PATH, OWID_COVID_CSV_URL, INGESTION_DATE, HTTP_CHUNK_SIZE, LOG_FORMAT
+from src.ingestion.config import RAW_DATA_PATH, LOG_PATH, OWID_COVID_CSV_URL, INGESTION_DATE, HTTP_CHUNK_SIZE, LOG_FORMAT
 
 # ============================
 # Logging configuration
