@@ -1,6 +1,8 @@
-# Configuration PostgreSQL pour le pipeline streaming OWID
+'''
+PostgreSQL configuration for the OWID streaming pipeline
+'''
 
-# Paramètres de connection
+# Connection parameters for the PostgreSQL database
 POSTGRES_CONFIG = {
     "host": "postgres",
     "port": 5432,
@@ -9,5 +11,5 @@ POSTGRES_CONFIG = {
     "database": "covid_dw",
 }
 
-# Table staging pour écriture des données de streaming
+# Target staging table for writing streaming data
 STAGING_TABLE = "staging.stg_owid_covid"

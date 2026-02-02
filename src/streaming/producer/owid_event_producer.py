@@ -1,9 +1,12 @@
-# Producer Kafka simulant un flux de mises à jour quotidiennes des données de vaccination COVID (OWID)
+'''
+Kafka Producer simulating a daily stream of OWID COVID vaccination updates
 
-# - lecture des fichiers Parquet de données OWID déjà traitées (processed)
-# - sélection des lignes à la date donnée
-# - transformation des lignes en événements
-# - publication des événements dans Kafka avec simulation flux temps réel (délai entre envoi)
+Responsibilities:
+ - Read processed OWID Parquet files
+ - Filter records for a given date
+ - Transform rows into business events
+ - Publish events to Kafka with a simulated real-time delay
+'''
 
 import json
 import time
@@ -16,7 +19,7 @@ from confluent_kafka import Producer
 from src.streaming.config.kafka_config import PRODUCER_CONFIG, OWID_TOPIC
 
 # ============================
-# Setup du logging
+# Logging setup
 # ============================
 logging.basicConfig(
     level=logging.INFO,
@@ -26,10 +29,15 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ============================
-# Transformations métier
+# Business transformations
 # ============================
 def build_event(row: pd.Series) -> dict:
-    # Transformation ligne OWID en événement métier
+    '''
+    Transform a single OWID vaccination record into a Kafka event.
+
+    :param row: pandas Series representing one OWID record
+    :return: dictionary representing the event payload
+    '''
     return {
         "event_type": "vaccination_daily_update",
         "event_time": row["date"],
@@ -44,7 +52,11 @@ def build_event(row: pd.Series) -> dict:
 # Kafka callbaks
 # ============================
 def delivery_report(err, msg):
-    # Callback Kafka -> confirmation de l'envoi 
+    '''
+    Kafka delivery callback.
+
+    Called once the message has been delivered or failed.
+    '''
     if err is not None:
         logger.error(f"Echec de l'envoi : {err}")
     else:
@@ -59,48 +71,48 @@ def delivery_report(err, msg):
 # Kafka producer
 # ============================
 def run_producer(input_path: Path,target_date: str):
-    # Publication des évènements à une date données dans Kafka
+    '''
+    Publish OWID vaccination events for a specific date to Kafka.
+
+    :param input_path: root directory containing processed Parquet files
+    :param target_date: date to simulate (YYYY-MM-DD)
+    '''
     
     producer = Producer(PRODUCER_CONFIG)
     logger.info("Démarrage du producer OWID")
 
     for parquet_file in input_path.rglob("*.parquet"):
-        # lecture fichiers Parquet
-        df = pd.read_parquet(parquet_file)
-        # récupération iso_code depuis le nom du dossier parent
-        iso_code = parquet_file.parent.name.split('=')[1]
+        df = pd.read_parquet(parquet_file) # Read Parquet file
+
+        iso_code = parquet_file.parent.name.split('=')[1] # Extract iso_code from partitioned folder name
         df['iso_code'] = iso_code
         
-        # récupération des lignes à la date spécifiée
         df["date"] = df["date"].astype(str)
-        df_day = df[df["date"] == target_date]
-        
-        # logger.info(f"{parquet_file}: {df_day.shape[0]} lignes pour la date {target_date}")
+        df_day = df[df["date"] == target_date] # Filter records for the target date
 
         if df_day.empty:
             continue
 
-        # publication ligne par ligne dans Kafka
+        # Publish events row by row to Kafka
         for _, row in df_day.iterrows():
             event = build_event(row)
 
             producer.produce(
                 topic=OWID_TOPIC,
                 key=row["iso_code"],
-                value=json.dumps(event).encode("utf-8"), # envoi une chaîne de caractère JSON encodée en bytes
+                value=json.dumps(event).encode("utf-8"), # serialize the event to JSON and encode it as UTF-8 bytes before sending
                 callback=delivery_report,
             )
 
-            producer.poll(0) # déclenchement de l'envoi et exécution des callbacks
-            time.sleep(0.1) # délai pour simulation flux temps réel
+            producer.poll(0) # trigger delivery callbacks
+            time.sleep(0.1) # simulate real-time streaming delay
 
-    producer.flush() # attend que tout soit envoyé avant de quitter le script
+    producer.flush() # ensure all messages are delivered
     logger.info("Tous les évènements ont été publiés avec succès")
 
 # ============================
-# Point d'entrée du script
+# Standalone execution
 # ============================
-# Lancement simulation d'un flux Kafka pour une date donnée
 if __name__ == "__main__":
     INPUT_PATH = Path("data/processed/owid_covid")
     TARGET_DATE = "2021-06-01"

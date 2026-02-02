@@ -1,12 +1,13 @@
-# Job Spark Structured Streaming pour les événements de vaccination OWID
+'''
+Spark Structured Streaming job for OWID COVID-19 vaccination events
 
-# - Lecture des événements depuis Kafka
-# - Désérialisation des messages JSON avec schéma explicite
-# - Transformation des données pour table de staging commune batch/streaming
-# - Déduplication du micro-batch
-
-# - Gestion des données en retard
-# - Écriture des données de streaming dans la table de staging PostgreSQL
+Responsibilities:
+ - Consume vaccination events from Kafka
+ - Deserialize JSON messages using an explicit schema
+ - Transform streaming data to match the shared batch/streaming staging model
+ - Deduplicate records at micro-batch level
+ - Idempotent writes into PostgreSQL staging via UPSERT logic
+'''
 
 import logging
 from pyspark.sql import functions as F
@@ -21,19 +22,18 @@ from src.streaming.postgres_writer import get_postgres_connection, write_datafra
 # ============================
 # Configuration
 # ============================
-# Setup du logging
+# Logging setup
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s | %(levelname)s | %(message)s",
 )
 logger = logging.getLogger(__name__)
 
-# Session Spark
+# Spark session initialization
 spark = get_spark_session("OWID_COVID_Streaming")
-# Réduction du bruit des logs Spark
-spark.sparkContext.setLogLevel("WARN")
+spark.sparkContext.setLogLevel("WARN") # Reduce Spark internal logging noise
 
-# Paramètres PostgreSQL
+# PostgreSQL JDBC configuration
 POSTGRES_JDBC_URL = f"jdbc:postgresql://{POSTGRES_CONFIG['host']}:{POSTGRES_CONFIG['port']}/{POSTGRES_CONFIG['database']}"
 POSTGRES_JDBC_PROPERTIES = {
     "user": POSTGRES_CONFIG["user"],
@@ -42,7 +42,7 @@ POSTGRES_JDBC_PROPERTIES = {
 }
 
 # ============================
-# Schéma explicite des événements
+# Explicit schema for Kafka events
 # ============================
 event_schema = (
     StructType()
@@ -56,9 +56,9 @@ event_schema = (
 )
 
 # ============================
-# Lecture du flux Kafka
+# Kafka stream ingestion
 # ============================
-# Lecture
+# Read events from Kafka topic
 df_raw = (
     spark.readStream
     .format("kafka")
@@ -68,7 +68,7 @@ df_raw = (
     .load()
 )
 
-# Désérialisation des messages JSON
+# Deserialize JSON payload into structured columns
 df_parsed = (
     df_raw
     .selectExpr("CAST(value AS STRING) AS json_str")
@@ -83,10 +83,21 @@ df_with_event_time = (
 )
 
 # ============================
-# Fonction de transformation des données pour conformité format table staging
+# Micro-batch transformation
 # ============================
 def transform_batch(batch_df: DataFrame) -> DataFrame:
-    # Transformation micro-batch pour correspondre à la table de staging commune batch/streaming sur PostgreSQL 
+    '''
+    Transform a Spark micro-batch to match the PostgreSQL staging table schema.
+
+    This function:
+    - Renames and casts streaming fields to staging-compatible columns
+    - Fills missing batch-only fields with NULL values
+    - Adds load metadata
+    - Deduplicates records based on (date, iso_code)
+
+    :param batch_df: Input micro-batch DataFrame from Spark Structured Streaming
+    :return: Transformed DataFrame ready for PostgreSQL ingestion
+    '''
     return (
         batch_df
         .select(
@@ -98,7 +109,7 @@ def transform_batch(batch_df: DataFrame) -> DataFrame:
             F.when(~F.isnan(F.col("people_vaccinated")), F.col("people_vaccinated").cast("long")).otherwise(None).alias("people_vaccinated"),
             F.when(~F.isnan(F.col("people_fully_vaccinated")), F.col("people_fully_vaccinated").cast("long")).otherwise(None).alias("people_fully_vaccinated"),
 
-            # Colonnes non fournies par le streaming complétées par NULL
+            # Fields not provided by streaming are explicitly set to NULL
             F.lit(None).cast("long").alias("total_boosters"),
             F.lit(None).cast("long").alias("new_vaccinations"),
             F.lit(None).cast("double").alias("new_vaccinations_smoothed"),
@@ -109,29 +120,38 @@ def transform_batch(batch_df: DataFrame) -> DataFrame:
             F.lit(None).cast("double").alias("total_boosters_per_hundred"),
             F.current_date().alias("load_date")
         )
-        # Déduplication du micro-batch selon (date, iso_code)
+        # Micro-batch deduplication on (date, iso_code)
         .dropDuplicates(["date", "iso_code"])
     )
 
 # ============================
-# Fonction d'écriture dans PostgreSQL
+# PostgreSQL micro-batch sink
 # ============================
 def write_batch_to_postgres(batch_df: DataFrame, epoch_id: int) -> None:
-    # Écriture d'un micro-batch de données dans la table de staging PostgreSQL, gestion des doublons
+    '''
+    Write a Spark Structured Streaming micro-batch to PostgreSQL staging.
 
-    if batch_df.isEmpty():
+    Processing steps:
+    - Skip empty micro-batches
+    - Transform data to staging schema
+    - Write data into a temporary table via JDBC
+    - UPSERT records into the shared batch/streaming staging table
+    - Ensure idempotency using conflict resolution
+
+    :param batch_df: Micro-batch DataFrame
+    :param epoch_id: Spark Structured Streaming epoch identifier
+    '''
+    if batch_df.isEmpty(): # Skip empty micro-batches
         logger.info("Epoch %s : batch vide, aucun enregistrement à écrire", epoch_id)
         return
 
-    # Transformation pour correspondre au schema PostgreSQL
-    df_to_write = transform_batch(batch_df)
-
+    df_to_write = transform_batch(batch_df) # Transform data to PostgreSQL-compatible schema
     logger.info("Epoch %s : écriture de %s enregistrements", epoch_id, df_to_write.count())
     
-    
-    temp_table = "staging.owid_covid_tmp"
 
-    # DROP + CREATE table temporaire pour setup propre
+    temp_table = "staging.owid_covid_tmp" # Temporary table used to enable UPSERT logic
+
+    # Drop and recreate temporary table for a clean micro-batch load
     pg_conn_setup = get_postgres_connection(
         POSTGRES_CONFIG['host'],
         POSTGRES_CONFIG['port'],
@@ -167,14 +187,14 @@ def write_batch_to_postgres(batch_df: DataFrame, epoch_id: int) -> None:
     finally:
         pg_conn_setup.close()
     
-    # Écriture dans table temporaire via Spark JDBC pour permettre UPSERT
+    # Write micro-batch to temporary table using Spark JDBC
     write_dataframe_to_postgres(df_to_write, temp_table, POSTGRES_JDBC_URL, POSTGRES_JDBC_PROPERTIES, mode="append")
     
     pg_conn = None
     try:
         pg_conn = get_postgres_connection(POSTGRES_CONFIG['host'],POSTGRES_CONFIG['port'],POSTGRES_CONFIG['database'],POSTGRES_CONFIG['user'],POSTGRES_CONFIG['password'])
 
-        # UPSERT dans table staging commune batch/streaming
+        # UPSERT micro-batch data into shared batch/streaming staging table
         logger.info("Epoch %s : tentative d'écriture du batch...", epoch_id)
         logger.info(f"Écriture dans {STAGING_TABLE}")
         upsert_from_temp_table(
@@ -196,7 +216,7 @@ def write_batch_to_postgres(batch_df: DataFrame, epoch_id: int) -> None:
             pg_conn.close()
 
 # ============================
-# Lancement streaming
+# Streaming query execution
 # ============================
 query = (
     df_with_event_time.writeStream
