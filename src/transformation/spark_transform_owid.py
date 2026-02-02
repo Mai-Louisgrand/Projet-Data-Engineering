@@ -1,26 +1,23 @@
-# Transformation des données OWID COVID-19 – Vaccination
+'''
+OWID COVID-19 Data Transformation – Vaccination
 
-# Fonctionnalités :
-# - Nettoyage et structuration des données de vaccination par pays
-# - Recalcul des indicateurs normalisés par populatio
-# - Préparation table analytique fiable pour downstream
+This script performs the following tasks:
+- Cleans and structures country-level vaccination data.
+- Recalculates normalized indicators per 100 inhabitants.
+- Writes processed data as partitioned Parquet files per country, ready for downstream analytical processing or ingestion.
+'''
 
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql.types import DoubleType
 
-
 # ============================
 # Configuration
 # ============================
-
-# TODO (Airflow):
-# - Paramétrer dynamiquement la date d’ingestion
-# - Passer RAW_PATH via le DAG
 RAW_PATH = "data/raw/owid_covid/"
 OUTPUT_PATH = "data/processed/owid_covid/"
 
-# Spark Session
+# Initialize Spark session
 spark = (
     SparkSession.builder
     .appName("OWID_COVID_Transformation")
@@ -28,10 +25,10 @@ spark = (
 )
 
 # ============================
-# Colonnes utiles
+# Column definitions
 # ============================
 
-# colonnes nécessaires à l'identification des enregistrements
+# Columns required for record identification
 CRITICAL_COLUMNS = [
     "iso_code",
     "continent",
@@ -39,7 +36,7 @@ CRITICAL_COLUMNS = [
     "date"
 ]
 
-# colonnes liées au périmètre métier
+# Business-related columns
 BUSINESS_COLUMNS = [
     "total_vaccinations",
     "people_vaccinated",
@@ -50,7 +47,7 @@ BUSINESS_COLUMNS = [
     "population"
 ]
 
-# colonnes numériques nécessitant des contrôles de cohérence
+# Numeric columns requiring consistency checks
 NUMERIC_COLUMNS = [
     "total_vaccinations",
     "people_vaccinated",
@@ -62,7 +59,7 @@ NUMERIC_COLUMNS = [
 ]
 
 # ============================
-# Lecture données RAW
+# Read raw data
 # ============================
 df = (
     spark.read
@@ -75,7 +72,7 @@ df = (
 # Transformations
 # ============================
 
-# 1. Filtrage lignes critiques
+# 1. Filter critical rows (records with essential identifiers)
 df = (
     df
     .filter(F.col("iso_code").isNotNull())
@@ -83,25 +80,30 @@ df = (
     .filter(F.col("date").isNotNull())
 )
 
-# 2. Exclusion des agrégats OWID
+# 2. Exclude OWID aggregates
 df = df.filter(~F.col("iso_code").startswith("OWID_"))
 
-# 3. Réduction du schéma
+# 3. Reduce schema to relevant columns
 df = df.select(*(CRITICAL_COLUMNS + BUSINESS_COLUMNS))
 
-# 4. Nettoyage préventif des valeurs numériques
-# Hypothèses :
-# - Les métriques vaccination ne peuvent pas être négatives
-# - Les valeurs nulles sont conservées
+# 4. Preventive cleaning of numeric values
+# Assumptions:
+# - Vaccination metrics cannot be negative
+# - Null values are preserved
 for col_name in NUMERIC_COLUMNS:
     df = df.withColumn(
         col_name,
         F.when(F.col(col_name) < 0, None).otherwise(F.col(col_name))
     )
 
-# 5. Recalcul indicateurs normalisés
+# 5. Recalculate normalized indicators per 100 inhabitants
 def per_hundred(metric_col: str):
-    # Calcul d'un indicateur pour 100 habitants (protection division par zéro et conservation des nulls)
+    '''
+    Compute normalized indicator per 100 inhabitants.
+    
+    :param metric_col: Column name containing metric to normalize
+    :return: Column expression with normalized values
+    '''
     return (
         F.when(
             (F.col(metric_col).isNotNull()) &
@@ -135,14 +137,14 @@ df = (
 )
 
 # ============================
-# Ecriture données Processed
+# Write processed data
 # ============================
 (
     df
-    # Redistribuer lignes par iso_code pour optimiser les opérations Spark
+    # Repartition by country code for Spark optimization
     .repartition("iso_code")  
 
-    # Créer un dossier par pays avec fichiers Parquets
+     # Write Parquet files, one folder per country
     .write
     .mode("overwrite")
     .partitionBy("iso_code")
