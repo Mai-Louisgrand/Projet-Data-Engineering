@@ -10,6 +10,7 @@ Responsibilities:
 '''
 
 import logging
+from pathlib import Path
 from pyspark.sql import functions as F
 from pyspark.sql.types import StructType, StringType, DoubleType
 from pyspark.sql import DataFrame
@@ -28,10 +29,6 @@ logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(message)s",
 )
 logger = logging.getLogger(__name__)
-
-# Spark session initialization
-spark = get_spark_session("OWID_COVID_Streaming")
-spark.sparkContext.setLogLevel("WARN") # Reduce Spark internal logging noise
 
 # PostgreSQL JDBC configuration
 POSTGRES_JDBC_URL = f"jdbc:postgresql://{POSTGRES_CONFIG['host']}:{POSTGRES_CONFIG['port']}/{POSTGRES_CONFIG['database']}"
@@ -56,47 +53,21 @@ event_schema = (
 )
 
 # ============================
-# Kafka stream ingestion
-# ============================
-# Read events from Kafka topic
-df_raw = (
-    spark.readStream
-    .format("kafka")
-    .option("kafka.bootstrap.servers", KAFKA_BOOTSTRAP_SERVERS)
-    .option("subscribe", OWID_TOPIC)
-    .option("startingOffsets", "earliest")
-    .load()
-)
-
-# Deserialize JSON payload into structured columns
-df_parsed = (
-    df_raw
-    .selectExpr("CAST(value AS STRING) AS json_str")
-    .select(F.from_json("json_str", event_schema).alias("data"))
-    .select("data.*")
-)
-
-df_with_event_time = (
-    df_parsed
-    .withColumn("event_timestamp", F.to_timestamp("event_time", "yyyy-MM-dd"))
-    .withWatermark("event_timestamp", "7 days")
-)
-
-# ============================
-# Micro-batch transformation
+# Helper functions
 # ============================
 def transform_batch(batch_df: DataFrame) -> DataFrame:
     '''
-    Transform a Spark micro-batch to match the PostgreSQL staging table schema.
+    Transform a Spark micro-batch to match the shared PostgreSQL staging table
+    used by both batch and streaming pipelines.
 
-    This function:
+    This transformation:
     - Renames and casts streaming fields to staging-compatible columns
-    - Fills missing batch-only fields with NULL values
+    - Completes missing fields with NULL values
     - Adds load metadata
-    - Deduplicates records based on (date, iso_code)
+    - Deduplicates records at micro-batch level based on (date, iso_code)
 
-    :param batch_df: Input micro-batch DataFrame from Spark Structured Streaming
-    :return: Transformed DataFrame ready for PostgreSQL ingestion
+    :param batch_df: Input Spark DataFrame representing a streaming micro-batch
+    :return: Transformed DataFrame ready for PostgreSQL ingestion 
     '''
     return (
         batch_df
@@ -120,38 +91,34 @@ def transform_batch(batch_df: DataFrame) -> DataFrame:
             F.lit(None).cast("double").alias("total_boosters_per_hundred"),
             F.current_date().alias("load_date")
         )
-        # Micro-batch deduplication on (date, iso_code)
+        # Micro-batch deduplication based on (date, iso_code)
         .dropDuplicates(["date", "iso_code"])
     )
 
-# ============================
-# PostgreSQL micro-batch sink
-# ============================
 def write_batch_to_postgres(batch_df: DataFrame, epoch_id: int) -> None:
     '''
-    Write a Spark Structured Streaming micro-batch to PostgreSQL staging.
+    Write a Spark Structured Streaming micro-batch into the PostgreSQL staging table.
 
     Processing steps:
     - Skip empty micro-batches
-    - Transform data to staging schema
-    - Write data into a temporary table via JDBC
+    - Transform data to match PostgreSQL staging schema
+    - Write data into a temporary table via Spark JDBC
     - UPSERT records into the shared batch/streaming staging table
-    - Ensure idempotency using conflict resolution
+    - Ensure idempotent writes using conflict resolution
 
-    :param batch_df: Micro-batch DataFrame
-    :param epoch_id: Spark Structured Streaming epoch identifier
+    :param batch_df: Spark DataFrame for the current micro-batch
+    :param epoch_id: Structured Streaming epoch identifier
     '''
-    if batch_df.isEmpty(): # Skip empty micro-batches
+    # Skip empty micro-batches
+    if batch_df.count() == 0:
         logger.info("Epoch %s : batch vide, aucun enregistrement à écrire", epoch_id)
         return
 
-    df_to_write = transform_batch(batch_df) # Transform data to PostgreSQL-compatible schema
-    logger.info("Epoch %s : écriture de %s enregistrements", epoch_id, df_to_write.count())
+    df_to_write = transform_batch(batch_df) # Transform data to match PostgreSQL schema
     
-
     temp_table = "staging.owid_covid_tmp" # Temporary table used to enable UPSERT logic
 
-    # Drop and recreate temporary table for a clean micro-batch load
+    # Drop and recreate temporary table to ensure a clean micro-batch load
     pg_conn_setup = get_postgres_connection(
         POSTGRES_CONFIG['host'],
         POSTGRES_CONFIG['port'],
@@ -187,14 +154,14 @@ def write_batch_to_postgres(batch_df: DataFrame, epoch_id: int) -> None:
     finally:
         pg_conn_setup.close()
     
-    # Write micro-batch to temporary table using Spark JDBC
+    # Write transformed micro-batch into temporary table via Spark JDBC
     write_dataframe_to_postgres(df_to_write, temp_table, POSTGRES_JDBC_URL, POSTGRES_JDBC_PROPERTIES, mode="append")
     
     pg_conn = None
     try:
         pg_conn = get_postgres_connection(POSTGRES_CONFIG['host'],POSTGRES_CONFIG['port'],POSTGRES_CONFIG['database'],POSTGRES_CONFIG['user'],POSTGRES_CONFIG['password'])
 
-        # UPSERT micro-batch data into shared batch/streaming staging table
+        # UPSERT micro-batch data into the shared batch/streaming staging table
         logger.info("Epoch %s : tentative d'écriture du batch...", epoch_id)
         logger.info(f"Écriture dans {STAGING_TABLE}")
         upsert_from_temp_table(
@@ -204,7 +171,6 @@ def write_batch_to_postgres(batch_df: DataFrame, epoch_id: int) -> None:
             update_cols=["total_vaccinations", "people_vaccinated", "people_fully_vaccinated", "load_date"],
             pg_conn=pg_conn
         )
-
         logger.info("Epoch %s : batch écrit avec succès", epoch_id)
 
     except Exception as e:
@@ -215,16 +181,79 @@ def write_batch_to_postgres(batch_df: DataFrame, epoch_id: int) -> None:
         if pg_conn:
             pg_conn.close()
 
-# ============================
-# Streaming query execution
-# ============================
-query = (
-    df_with_event_time.writeStream
-    .foreachBatch(write_batch_to_postgres)
-    .outputMode("append")
-    .option("checkpointLocation", "data/checkpoints/owid_stream")
-    .start()
-)
 
-logger.info("Job Spark Structured Streaming OWID démarré")
-query.awaitTermination()
+# ============================
+# Consumer
+# ============================
+def run_consumer(checkpoint_dir: Path = Path("/opt/airflow/data/checkpoints/owid_stream")):
+    '''
+    Run the Spark Structured Streaming consumer for OWID COVID-19 vaccination data.
+
+    This function:
+    - Initializes a Spark Structured Streaming session
+    - Reads vaccination events from Kafka
+    - Deserializes JSON messages using an explicit schema
+    - Applies event-time processing with watermarks
+    - Writes streaming micro-batches into PostgreSQL staging
+
+    :param checkpoint_dir: Directory used by Spark to persist streaming checkpoints
+    '''
+    # Initialize Spark session
+    spark = get_spark_session("OWID_COVID_Streaming")
+    spark.sparkContext.setLogLevel("WARN")
+
+    # ============================
+    # Read events and transformation
+    # ============================
+    # Read events from Kafka
+    df_raw = (
+        spark.readStream
+        .format("kafka")
+        .option("kafka.bootstrap.servers", KAFKA_BOOTSTRAP_SERVERS)
+        .option("subscribe", OWID_TOPIC)
+        .option("startingOffsets", "earliest")
+        .option("failOnDataLoss", "false")
+        .load()
+    )
+
+    # Deserialize JSON messages into structured columns
+    df_parsed = (
+        df_raw
+        .selectExpr("CAST(value AS STRING) AS json_str")
+        .select(F.from_json("json_str", event_schema).alias("data"))
+        .select("data.*")
+    )
+
+    # Add event-time column and watermark for late data handling
+    df_with_event_time = (
+        df_parsed
+        .withColumn("event_timestamp", F.to_timestamp("event_time", "yyyy-MM-dd"))
+        .withWatermark("event_timestamp", "7 days")
+    )
+
+    # ============================
+    # Streaming execution
+    # ============================
+    query = (
+        df_with_event_time.writeStream
+        .foreachBatch(write_batch_to_postgres)
+        .outputMode("append")
+        .option("checkpointLocation", str(checkpoint_dir.resolve()))
+        .start()
+    )
+
+    logger.info("Job Spark Structured Streaming OWID démarré")
+    
+    # Process all currently available micro-batches and stop
+    query.processAllAvailable()
+    logger.info("Micro-batchs traités, consumer stop")
+    query.stop()
+
+    # For long-running :
+    # query.awaitTermination()
+
+# ============================
+# Standalone execution
+# ============================
+if __name__ == "__main__":
+    run_consumer()
