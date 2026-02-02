@@ -8,6 +8,7 @@ This script performs the following tasks:
 '''
 
 import logging
+import psycopg2
 from datetime import date
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import lit
@@ -70,6 +71,24 @@ def run_load(
         df = df.repartition(4) # Repartition to optimize JDBC write performance
 
         # ============================
+        # Truncate staging table before loading
+        # ============================
+        logger.info(f"Vider la table {pg_table} avant insertion")
+        conn = psycopg2.connect(
+            host=pg_host,
+            port=pg_port,
+            dbname=pg_db,
+            user=pg_user,
+            password=pg_password
+        )
+        cur = conn.cursor()
+        cur.execute(f"TRUNCATE TABLE {pg_table};")
+        conn.commit()
+        cur.close()
+        conn.close()
+        logger.info(f"Table {pg_table} vidée avec succès")
+
+        # ============================
         # Write to PostgreSQL staging table
         # ============================
         logger.info("Chargement des données dans la table de staging PostgreSQL")
@@ -81,7 +100,7 @@ def run_load(
             .option("user", pg_user)
             .option("password", pg_password)
             .option("driver", "org.postgresql.Driver")
-            .mode("overwrite")
+            .mode("append")
             .save()
                 )
 
