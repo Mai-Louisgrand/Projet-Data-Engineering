@@ -1,7 +1,9 @@
-# DAG Airflow : owid_batch_pipeline
+'''
+Airflow DAG: owid_batch_pipeline
 
-# - définition du pipeline batch pour le dataset OWID COVID-19 
-# - orchestration de : ingestion, transformation et chargement des données dans PostgreSQL, avec suivi via Airflow
+ - Definition of the batch pipeline for the OWID COVID-19 dataset
+ - Orchestration of ingestion, transformation, and loading into PostgreSQL with monitoring handled by Airflow
+'''
 
 from pathlib import Path
 from airflow import DAG
@@ -13,7 +15,7 @@ import os
 import psycopg2
 import logging
 
-# Import des fonctions métier existantes
+# Import existing business logic functions
 from src.ingestion.ingestion_owid_batch import create_output_dir, download_csv
 from src.transformation.spark_transform_owid import run_transformation
 from src.storage.postgres.load_owid_postgres import run_load
@@ -21,11 +23,12 @@ from src.storage.postgres.load_owid_postgres import run_load
 # =============================
 # Configuration
 # =============================
-# Paramètres
+# Default paths
 DEFAULT_PROCESSED_DIR = Path("data/processed/owid_covid")
 
+# PostgreSQL connection parameters
 DB_PARAMS = {
-    "PGHOST": "postgres",       # host du container PostgreSQL pour Airflow
+    "PGHOST": "postgres",        # PostgreSQL container hostname from Airflow
     "PGUSER": "data",
     "PGPASSWORD": "data",
     "PGDATABASE": "covid_dw",
@@ -33,21 +36,21 @@ DB_PARAMS = {
 }
 
 # =============================
-# Fonctions wrappers pour Airflow
+# Airflow task wrapper functions
 # =============================
-# Pour l'ingestion
+# -------- Ingestion --------
 def task_create_raw_dir(ti, **kwargs):
     '''
-    Crée le dossier RAW pour l'ingestion du jour et le stocke dans XCom pour la tâche suivante
+    Create the RAW directory for the current ingestion run and store its path in XCom for downstream tasks.
     '''
     logger = logging.getLogger("airflow.task")
     output_dir = create_output_dir()
-    ti.xcom_push(key='raw_dir', value=str(output_dir)) # stocke Path via un string dans XCom pour les tâches suivantes
+    ti.xcom_push(key='raw_dir', value=str(output_dir)) # store Path as string in XCom for compatibility
     logger.info(f"Dossier RAW créé : {output_dir}")
 
 def task_download_csv(ti, **kwargs):
     '''
-    Télécharge le CSV OWID dans le dossier RAW récupéré depuis XCom
+    Download CSV file into the RAW directory retrieved from XCom.
     '''
     logger = logging.getLogger("airflow.task")
     output_dir_str = ti.xcom_pull(key='raw_dir')
@@ -57,20 +60,22 @@ def task_download_csv(ti, **kwargs):
 
 def check_raw_data(ti, **kwargs):
     '''
-    Vérifie que le CSV est bien téléchargé après download
+    Verify that the CSV file has been successfully downloaded and is not empty.
     '''
     logger = logging.getLogger("airflow.task")
     raw_dir = Path(ti.xcom_pull(key='raw_dir'))
     csv_file = raw_dir / "owid_covid_data.csv"
+
     if not csv_file.exists() or csv_file.stat().st_size == 0:
         logger.error(f"CSV manquant ou vide dans {raw_dir}")
         raise ValueError(f"CSV manquant ou vide dans {raw_dir}")
+    
     logger.info(f"CSV présent et non vide : {csv_file}")
 
-# Pour la transformation
+# -------- Transformation --------
 def task_run_transformation(ti, **kwargs):
     '''
-    Exécute la transformation OWID COVID
+    Execute the OWID COVID transformation using PySpark.
     '''
     logger = logging.getLogger("airflow.task")
     raw_dir_str = ti.xcom_pull(key='raw_dir')
@@ -80,33 +85,37 @@ def task_run_transformation(ti, **kwargs):
 
 def check_transformed_data(**kwargs):
     '''
-    Vérifie existence des fichiers transformés avant chargement vers stockage
+    Verify that transformed Parquet files exist before loading them into storage.
     '''
     logger = logging.getLogger("airflow.task")
     processed_dir = kwargs["params"]["processed_dir"]
+
     parquet_files = list(Path(processed_dir).glob("**/*.parquet"))
     if not parquet_files:
         logger.error(f"Pas de fichiers transformés dans {processed_dir}")
         raise ValueError(f"Pas de fichiers transformés dans {processed_dir} à charger")
+    
     logger.info(f"{len(parquet_files)} fichiers transformés prêts à être chargés")
 
-# Pour le stockage
+# -------- Storage --------
 def task_run_init_storage():
-    """
-    Initialise la base de données PostgreSQL
-    """
+    '''
+    Initialize the PostgreSQL database (schemas, tables, constraints).
+    '''
     logger = logging.getLogger("airflow.task")
 
-    # Variables d'environnement pour le script
+    # Prepare environment variables for the shell script
     env = os.environ.copy()
     env.update(DB_PARAMS)
+
     subprocess.run(["/opt/airflow/scripts/bash/init_storage.sh"], env=env, check=True)
+    
     logger.info("Initialisation PostgreSQL terminée")
 
 def task_load_staging(ti, **kwargs):
-    """
-    Charge les fichiers Parquet transformés vers table de staging dans PostgreSQL
-    """
+    '''
+    Load transformed Parquet files into the PostgreSQL staging table.
+    '''
     logger = logging.getLogger("airflow.task")
 
     processed_dir = kwargs["params"]["processed_dir"]
@@ -115,7 +124,7 @@ def task_load_staging(ti, **kwargs):
 
 def check_staging_data(**kwargs):
     '''
-    Vérifie que la table de staging PostgreSQL contient des données
+    Verify that the PostgreSQL staging table exists and contains data.
     '''
     logger = logging.getLogger("airflow.task")
 
@@ -130,7 +139,7 @@ def check_staging_data(**kwargs):
 
         cur = conn.cursor()
 
-        # Vérification existence table
+        # Check table existence
         cur.execute("""
             SELECT COUNT(*)
             FROM information_schema.tables
@@ -143,7 +152,7 @@ def check_staging_data(**kwargs):
             logger.error("Table staging.stg_owid_covid n'existe pas")
             raise ValueError("La table de staging n'existe pas")
 
-        # Vérification nombre de lignes
+        # Check row count
         cur.execute("SELECT COUNT(*) FROM staging.stg_owid_covid;")
         row = cur.fetchone()
         count = row[0] if row else 0
@@ -159,34 +168,39 @@ def check_staging_data(**kwargs):
         conn.close()
 
 def task_run_populate():
+    '''
+    Populate dimension and fact tables from the staging table.
+    '''
     logger = logging.getLogger("airflow.task")
 
     env = os.environ.copy()
     env.update(DB_PARAMS)
+
     subprocess.run("/opt/airflow/scripts/bash/run_dml.sh", env=env, check=True)
+
     logger.info("Population tables dim/fact terminée")
 
 # ============================
-# Arguments par défaut pour les tâches du DAG
+# Default DAG arguments
 # ============================
 default_args = {
-    'owner': 'airflow',                   # Propriétaire du DAG
-    'depends_on_past': False,             # Les exécutions ne dépendent pas des runs précédents
+    'owner': 'airflow',                   # DAG owner
+    'depends_on_past': False,             # Runs do not depend on previous executions
     'email_on_failure': True,
-    'retries': 1,                         # Nombre de retry en cas d’échec
-    'retry_delay': timedelta(minutes=3),  # Délai avant de retenter
+    'retries': 1,                         # Number of retries on failure
+    'retry_delay': timedelta(minutes=3),  # Delay between retries
 }
 
 # ============================
-# DAG Airflow
+# DAG definition
 # ============================
 with DAG(
-    'owid_batch_pipeline',            # Nom unique du DAG
+    'owid_batch_pipeline',
     description="Pipeline batch OWID : ingestion, transformation et stockage PostgreSQL",
-    default_args=default_args,        # Arguments par défaut
-    start_date=datetime(2026, 1, 16), # Date de début des exécutions
-    schedule_interval='@daily',       # Exécution quotidienne
-    catchup=False,                    # Ne pas exécuter les DAGs passés non lancés
+    default_args=default_args,
+    start_date=datetime(2026, 1, 16),
+    schedule_interval='@daily',       # daily execution
+    catchup=False,                    # Disable backfilling of past DAG runs
     params={
         "processed_dir": str(DEFAULT_PROCESSED_DIR),
     },
@@ -196,17 +210,13 @@ with DAG(
     """
 ) as dag:
 
-    # Tâche de démarrage
     start_task = PythonOperator(
         task_id='start', # Nom de la tâche dans Airflow
         python_callable=lambda: print("DAG démarré"),
         doc_md="Tâche de démarrage du DAG"
     )
 
-    # ============================
-    # Ingestion
-    # ============================
-    # Tâche de création du dossier RAW
+    # -------- Ingestion --------
     create_dir_task = PythonOperator(
         task_id='create_raw_dir',
         python_callable=task_create_raw_dir,
@@ -214,7 +224,6 @@ with DAG(
         doc_md="Création du dossier de données RAW"
     )
 
-    # Tâche de téléchargement du CSV
     download_csv_task = PythonOperator(
         task_id='download_csv',
         python_callable=task_download_csv,
@@ -222,17 +231,13 @@ with DAG(
         doc_md="Téléchargement des données CSV"
     )
 
-    # Tâche de vérification du téléchargement
     check_csv_task = PythonOperator(
         task_id='check_raw_data',
         python_callable=check_raw_data,
         execution_timeout=timedelta(minutes=3)
     )
 
-    # ============================
-    # Transformation
-    # ============================
-    # Tâche de transformation des données
+    # -------- Transformation --------
     transform_task = PythonOperator(
         task_id='transformation_owid',
         python_callable=task_run_transformation,
@@ -242,7 +247,6 @@ with DAG(
         doc_md="Transformation PySpark des fichiers RAW vers Parquet"
     )
 
-    # Tâche de vérification de la transformation
     quality_check_task = PythonOperator(
         task_id='check_transformed_data',
         python_callable=check_transformed_data,
@@ -251,10 +255,7 @@ with DAG(
         doc_md="Vérification de l'existence des fichiers transformés avant stockage"
     )
 
-    # ============================
-    # Stockage
-    # ============================
-    # Tâche d'initialisation du stockage sur PostgreSQL
+    # -------- Storage --------
     init_storage_task = PythonOperator(
         task_id="init_storage",
         python_callable=task_run_init_storage,
@@ -262,7 +263,6 @@ with DAG(
         doc_md="Initialisation de la BDD PostgreSQL"
     )
     
-    # Tâche de chargement dans PostgreSQL
     load_task = PythonOperator(
         task_id='load_staging',
         python_callable=task_load_staging,
@@ -270,7 +270,6 @@ with DAG(
         doc_md="Chargement des données transformées dans la table de staging"
     )
 
-    # Tâche de vérification du chargement
     check_staging_task = PythonOperator(
         task_id='check_staging_data',
         python_callable=check_staging_data,
@@ -278,7 +277,6 @@ with DAG(
         doc_md="Vérifie que la table de staging PostgreSQL contient bien des données avant population"
     )
 
-    # Tâche de population des tables via table de staging dans PostgreSQL
     populate_task = PythonOperator(
         task_id="populate_dim_fact",
         python_callable=task_run_populate,
@@ -286,10 +284,7 @@ with DAG(
         doc_md="Population des tables dim et fact à partir de la table de staging"
     )
 
-    # ============================
-    # Fin
-    # ============================
-    # Tâche de fin
+    # -------- End --------
     end_task = PythonOperator(
         task_id='end',
         python_callable=lambda: print("DAG terminé"),
@@ -297,5 +292,5 @@ with DAG(
     )
 
 
-    # Définition des dépendances (ordre d’exécution)
+    # Task dependencies
     start_task >> create_dir_task >> download_csv_task >> check_csv_task  >> transform_task >> quality_check_task >> init_storage_task >> load_task >> check_staging_task >> populate_task >> end_task

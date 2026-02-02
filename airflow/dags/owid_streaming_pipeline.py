@@ -1,5 +1,8 @@
-# DAG Airflow : owid_streaming_pipeline
-# Orchestration du pipeline de streaming simulé pour OWID COVID-19
+'''
+Airflow DAG: owid_streaming_pipeline
+
+Orchestrates a simulated OWID COVID-19 streaming pipeline using Kafka (producer) and Spark Structured Streaming (consumer)
+'''
 
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -16,23 +19,24 @@ import os
 # ============================
 # Configuration
 # ============================
-# Paramètres
+# Input path for processed OWID data (used by the Kafka producer)
 INPUT_PATH = Path("/opt/airflow/data/processed/owid_covid")
 
-# Topic
+# Kafka configuration
 KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:29092")
 TOPIC_NAME = "owid_vaccination_events"
 
-# Setup du logging
+# Logging setup
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ============================
-# Operator pour créer le topic si nécessaire
+# Utility: ensure Kafka topic exists
 # ============================
 def ensure_topic_exists(topic_name: str, partitions: int = 1, replication_factor: int = 1):
     '''
-    Vérifie si le topic existe, le crée sinon
+    Ensures that the Kafka topic exists.
+    If the topic does not exist, it is created.
     '''
     admin_client = KafkaAdminClient(bootstrap_servers=KAFKA_BOOTSTRAP_SERVERS)
     existing_topics = admin_client.list_topics()
@@ -44,7 +48,7 @@ def ensure_topic_exists(topic_name: str, partitions: int = 1, replication_factor
         logger.info(f"Topic Kafka déjà existant : {topic_name}")
 
 # ============================
-# Arguments par défaut pour les tâches du DAG
+# Default DAG arguments
 # ============================
 default_args = {
     'owner': 'airflow',
@@ -54,16 +58,16 @@ default_args = {
 }
 
 # ============================
-# DAG Airflow
+# DAG definition
 # ============================
 with DAG(
     "owid_streaming_pipeline",
     description="Pipeline streaming simulé OWID via Kafka + consumer Spark",
     default_args=default_args,
     start_date=datetime(2026, 1, 30),
-    schedule_interval=None,  # event-driven/manuel
+    schedule_interval=None,  # Event-driven / manual execution
     catchup=False,
-    params={"target_date": "{{ ds }}"},  # paramètre pour choisir date de simulation de streaming
+    params={"target_date": "{{ ds }}"},  # Date used to simulate the streaming events
     doc_md="""
     ## Streaming DAG OWID COVID-19
     - Producer Kafka : envoie micro-batchs simulés
@@ -71,16 +75,14 @@ with DAG(
     """
 ) as dag:
 
-    # Tâche de démarrage
+    # -------- Start --------
     start_task = PythonOperator(
         task_id="start",
         python_callable=lambda: logger.info("DAG streaming démarré"),
         doc_md="Tâche de démarrage du DAG"
     )
 
-    # ============================
-    # Création/validation du topic Kafka
-    # ============================
+    # -------- Kafka Topic management --------
     ensure_topic_task = PythonOperator(
         task_id="ensure_kafka_topic",
         python_callable=ensure_topic_exists,
@@ -88,10 +90,7 @@ with DAG(
         doc_md="Tâche de création/validation du topic Kafka"
     )
 
-    # ============================
-    # Producer
-    # ============================
-    # Tâche de démarrage du producer
+    # -------- Producer --------
     start_producer_task = PythonOperator(
         task_id="start_kafka_producer",
         python_callable=run_producer,
@@ -100,10 +99,7 @@ with DAG(
         doc_md="Tâche de démarrage du producer"
     )
 
-    # ============================
-    # Consumer
-    # ============================
-    # Tâche de démarrage du consumer
+    # -------- Consumer --------
     run_consumer_task = PythonOperator(
         task_id="run_streaming_consumer",
         python_callable=run_consumer,
@@ -111,14 +107,11 @@ with DAG(
         doc_md="Tâche de démarrage du consumer"
     )
 
-    # ============================
-    # Fin
-    # ============================
-    # Tâche de fin
+    # -------- End --------
     end_task = PythonOperator(
         task_id="end",
         python_callable=lambda: logger.info("DAG streaming terminé")
     )
 
-    # Définition des dépendances (ordre d’exécution)
+    # Task dependencies
     start_task >> ensure_topic_task >> start_producer_task >> run_consumer_task >> end_task
