@@ -1,10 +1,15 @@
 # Dockerfile.airflow
 FROM apache/airflow:2.9.1
 
-# Installer Java pour PySpark
+# Installer Java pour PySpark et ajout dossiers
 USER root
-RUN apt-get update && apt-get install -y default-jdk && apt-get clean
+RUN apt-get update && apt-get install -y default-jdk wget curl && apt-get clean
+RUN mkdir -p /opt/airflow/data/checkpoints
 
 USER airflow
-# Installation PySpark
-RUN pip install --no-cache-dir pyspark pandas
+# Installation PySpark et pandas
+RUN pip install --no-cache-dir pyspark==3.5.1 pandas
+# Installation Kafka
+RUN pip install confluent-kafka kafka-python
+
+USER airflow
