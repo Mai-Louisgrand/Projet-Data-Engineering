@@ -1,0 +1,31 @@
+# Dockerfile.airflow
+# ============================================================
+# Airflow Docker image with Spark, Kafka and Python dependencies
+#
+# Purpose:
+# - Extend the official Apache Airflow image
+# - Enable PySpark execution (Java + Spark)
+# - Enable Kafka integration for streaming pipelines
+# - Prepare local filesystem for Spark checkpoints
+# ============================================================
+FROM apache/airflow:2.9.1
+
+# Install Java (required by Spark) and basic utilities
+USER root
+RUN apt-get update && apt-get install -y default-jdk wget curl && apt-get clean
+
+# Create directory for Spark Structured Streaming checkpoints
+RUN mkdir -p /opt/airflow/data/checkpoints
+
+# ------------------------------------------------------------
+# Python dependencies
+# ------------------------------------------------------------
+USER airflow
+
+# Install PySpark and data processing libraries
+RUN pip install --no-cache-dir pyspark==3.5.1 pandas
+
+# Install Kafka clients (producer / consumer)
+RUN pip install confluent-kafka kafka-python
+
+USER airflow

@@ -16,6 +16,7 @@ def get_spark_session(app_name: str = "OWID_COVID_Streaming"):
         .appName(app_name)
         .config("spark.sql.shuffle.partitions", "4")  # Reduce number of partitions for local development
         .config("spark.sql.streaming.checkpointLocation", "data/checkpoints") # Default checkpoint location
+        .config("spark.jars.packages", "org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1,org.postgresql:postgresql:42.6.0")
         .getOrCreate()
     )
     return spark

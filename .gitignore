@@ -1,5 +1,6 @@
 venv/
 __pycache__/
 data/
-.vscode/
 airflow/logs/
+airflow/dags/__pycache__/
+.vscode/

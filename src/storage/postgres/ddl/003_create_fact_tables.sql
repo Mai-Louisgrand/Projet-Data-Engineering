@@ -25,9 +25,11 @@ CREATE TABLE IF NOT EXISTS fact.fact_vaccination (
     -- Constraints
     CONSTRAINT fk_date
         FOREIGN KEY (date_id)
-        REFERENCES dim.dim_date(date_id),        -- Ensure that each date_id exists in dim_date
+        REFERENCES dim.dim_date(date_id),         -- Ensure that each date_id exists in dim_date
 
     CONSTRAINT fk_location
         FOREIGN KEY (location_id)
-        REFERENCES dim.dim_location(location_id) -- Ensure that each location_id exists in dim_location
+        REFERENCES dim.dim_location(location_id), -- Ensure that each location_id exists in dim_location
+
+    CONSTRAINT uq_fact_location_date UNIQUE (location_id, date_id)
 );

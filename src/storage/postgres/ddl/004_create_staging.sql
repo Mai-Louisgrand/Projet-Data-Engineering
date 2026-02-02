@@ -22,5 +22,7 @@ CREATE TABLE IF NOT EXISTS staging.stg_owid_covid (
     total_boosters_per_hundred DOUBLE PRECISION,
 
     -- Metadata
-    load_date DATE
+    load_date DATE,
+    
+    CONSTRAINT uq_owid_iso_date UNIQUE (iso_code, date)
 );
