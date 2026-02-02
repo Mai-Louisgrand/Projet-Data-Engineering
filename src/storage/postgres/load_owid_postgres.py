@@ -1,9 +1,11 @@
-# Chargement des données OWID COVID-19 – Vaccination
+'''
+OWID COVID-19 Vaccination Data Loader – Parquet to PostgreSQL Staging
 
-# Fonctionnalités :
-# - Lecture des données Parquet transformées et partitionnées par pays (iso_code)
-# - Enrichissement avec métadonnées techniques (date de chargement)
-# - Chargement batch dans PostgreSQL via JDBC pour alimenter la table de staging
+This script performs the following tasks:
+- Reads transformed and partitioned Parquet files by country (iso_code)
+- Enriches data with technical metadata (load date)
+- Loads the batch dataset into a PostgreSQL staging table via JDBC
+'''
 
 import logging
 from datetime import date
@@ -11,7 +13,7 @@ from pyspark.sql import SparkSession
 from pyspark.sql.functions import lit
 
 # ============================
-# Setup du logging
+# Logging setup
 # ============================
 logging.basicConfig(
     level=logging.INFO,
@@ -22,7 +24,7 @@ logger = logging.getLogger(__name__)
 # ============================
 # Configuration
 # ============================
-# Paramètres PostgreSQL
+# PostgreSQL parameters
 PG_HOST = "localhost"
 PG_PORT = "5432"
 PG_DB = "covid_dw"
@@ -30,7 +32,7 @@ PG_USER = "data"
 PG_PASSWORD = "data"
 PG_TABLE = "staging.stg_owid_covid"
 
-# Dossier Parquet
+# Parquet folder
 PARQUET_PATH = "data/processed/owid_covid"
 
 # Spark session
@@ -44,41 +46,29 @@ spark = (
 logger.info("Session Spark initialisée")
 
 # ============================
-# Chargement des données vers la table de staging
+# Load Parquet data and write to PostgreSQL staging
 # ============================
 try:
-    # Lecture des fichiers Parquet
     logger.info("Lecture des fichiers Parquet de data/processed")
-    df = spark.read.parquet(PARQUET_PATH) #lit tous les fichiers Parquet sous PARQUET_PATH, en prenant en compte les partitions
-
+    df = spark.read.parquet(PARQUET_PATH) # Read all Parquet files under PARQUET_PATH, including partitions
     logger.info(f"Nombre de lignes lues : {df.count()}")
 
-    # Ajout des métadonnées de chargement dans une nouvelle colonne
-    df = df.withColumn("load_date", lit(date.today()))
+    df = df.withColumn("load_date", lit(date.today()))  # Add load metadata column
+    df = df.repartition(4) # Optimize JDBC write by repartitioning: set number of partitions to avoid overloading PostgreSQL
 
-    # Optimisation écriture JDBC
-    df = df.repartition(4) # définit nb partitions à 4 pour éviter de surcharger PostgreSQL
-
-    # Écriture dans PostgreSQL (table de staging)
+    # Write to PostgreSQL staging table
     logger.info("Chargement des données dans la table de staging PostgreSQL")
-
     (
     df.write
-        .format("jdbc") # vers base relationnelle
-
-        # connection à la BDD
+        .format("jdbc")
         .option("url", f"jdbc:postgresql://{PG_HOST}:{PG_PORT}/{PG_DB}")
         .option("dbtable", PG_TABLE)
         .option("user", PG_USER)
         .option("password", PG_PASSWORD)
         .option("driver", "org.postgresql.Driver")
-
-        # supprime et recrée la table pour insérer les données
-        .mode("overwrite")
-
-        # lance l'écriture
+        .mode("overwrite") # Drop and recreate table for insert
         .save()
-            )
+    )
 
     logger.info("Chargement des données terminé avec succès")
 

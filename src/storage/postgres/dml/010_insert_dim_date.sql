@@ -1,6 +1,6 @@
 -- ============================================================
--- Remplissage de la dimension date (génération indépendante des données métiers)
--- Plage : 2019-01-01 -> 2030-12-31
+-- Purpose: Populate the date dimension independently of business data
+-- Date range: 2019-01-01 -> 2030-12-31
 -- ============================================================
 
 INSERT INTO dim.dim_date (
@@ -17,13 +17,13 @@ INSERT INTO dim.dim_date (
     is_weekend
 )
 SELECT
-    -- Clé de substitution 
+    -- Surrogate key (YYYYMMDD)
     TO_CHAR(d, 'YYYYMMDD')::INT            AS date_id,
     
-    -- Valeur date réelle
+    -- Actual date
     d                                      AS date_value,
     
-    -- Composants temporels pour analyses
+    -- Time components for analysis
     EXTRACT(YEAR FROM d)::INT              AS year,
     EXTRACT(QUARTER FROM d)::INT           AS quarter,
     EXTRACT(MONTH FROM d)::INT             AS month,
@@ -32,17 +32,18 @@ SELECT
     EXTRACT(DAY FROM d)::INT               AS day,
     EXTRACT(ISODOW FROM d)::INT            AS day_of_week,
     TO_CHAR(d, 'Day')                      AS day_name,
-    -- Indicateur business utile (week-end)
+    
+    -- Business indicator: weekend flag
     CASE
         WHEN EXTRACT(ISODOW FROM d) IN (6,7) THEN TRUE
         ELSE FALSE
     END                                   AS is_weekend
 
-FROM generate_series(       -- fonction PostgreSQL générant une suite de dates
-    DATE '2019-01-01',      -- date de début
-    DATE '2030-12-31',      -- date de fin
-    INTERVAL '1 day'        -- incrément quotidien
+FROM generate_series(       -- PostgreSQL function generating a date sequence
+    DATE '2019-01-01',
+    DATE '2030-12-31',
+    INTERVAL '1 day'
 ) AS d
 
--- si date_id existe déjà, ignore et passe à la suite (sans ERREUR)
+-- If date_id already exists, ignore without raising an error
 ON CONFLICT (date_id) DO NOTHING;

@@ -1,5 +1,5 @@
 -- ============================================================
--- Objectif : créer table de faits pour la vaccination
+-- Purpose : Create fact table for COVID-19 vaccination
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS fact.fact_vaccination (
@@ -25,9 +25,9 @@ CREATE TABLE IF NOT EXISTS fact.fact_vaccination (
     -- Constraints
     CONSTRAINT fk_date
         FOREIGN KEY (date_id)
-        REFERENCES dim.dim_date(date_id), -- assurer que les valeurs date_id de cette table existe dans dim_date
+        REFERENCES dim.dim_date(date_id),        -- Ensure that each date_id exists in dim_date
 
     CONSTRAINT fk_location
         FOREIGN KEY (location_id)
-        REFERENCES dim.dim_location(location_id)
+        REFERENCES dim.dim_location(location_id) -- Ensure that each location_id exists in dim_location
 );

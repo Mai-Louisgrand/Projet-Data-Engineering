@@ -1,5 +1,5 @@
 -- ============================================================
--- Création de la table de staging pour les données OWID COVID
+-- Purpose: Create staging table for OWID COVID-19 data
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS staging.stg_owid_covid (
@@ -7,6 +7,8 @@ CREATE TABLE IF NOT EXISTS staging.stg_owid_covid (
     continent TEXT,
     location TEXT,
     date DATE,
+
+    -- Measures
     total_vaccinations BIGINT,
     people_vaccinated BIGINT,
     people_fully_vaccinated BIGINT,
@@ -18,5 +20,7 @@ CREATE TABLE IF NOT EXISTS staging.stg_owid_covid (
     people_vaccinated_per_hundred DOUBLE PRECISION,
     people_fully_vaccinated_per_hundred DOUBLE PRECISION,
     total_boosters_per_hundred DOUBLE PRECISION,
+
+    -- Metadata
     load_date DATE
 );

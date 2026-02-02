@@ -1,6 +1,6 @@
 -- ============================================================
--- Remplissage de la table de faits vaccination
--- Grain : 1 pays / 1 date
+-- Purpose: Populate the vaccination fact table
+-- Grain: 1 country / 1 date
 -- ============================================================
 
 INSERT INTO fact.fact_vaccination (

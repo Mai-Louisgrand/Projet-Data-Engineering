@@ -1,5 +1,5 @@
 -- ============================================================
--- Remplissage de la dimension location
+-- Purpose: Populate the location dimension from staging data
 -- ============================================================
 
 INSERT INTO dim.dim_location (
@@ -14,7 +14,7 @@ SELECT DISTINCT
 FROM staging.stg_owid_covid
 WHERE iso_code IS NOT NULL
   AND location IS NOT NULL
-  AND iso_code NOT LIKE 'OWID_%'
+  AND iso_code NOT LIKE 'OWID_%' -- exclude aggregate rows
 
--- si iso_code existe déjà, ignore et passe à la suite (sans ERREUR)
+-- If iso_code already exists, ignore without raising an error
 ON CONFLICT (iso_code) DO NOTHING;

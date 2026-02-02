@@ -1,11 +1,14 @@
 -- ============================================================
--- Objectif : créer tables de dimensions Date et Location
+-- Purpose : Create dimension tables for Date and Location
 -- ============================================================
 
--- Dimension Date
+-- ===========================
+-- Dimension: Date
+-- ===========================
+-- Stores calendar information for analytical purposes: each row represents a single date
 CREATE TABLE IF NOT EXISTS dim.dim_date (
     date_id        INT PRIMARY KEY,          -- YYYYMMDD
-    date_value     DATE NOT NULL UNIQUE,
+    date_value     DATE NOT NULL UNIQUE,     -- Actual date
     year           INT NOT NULL,
     quarter        INT NOT NULL,
     month          INT NOT NULL,
@@ -18,10 +21,13 @@ CREATE TABLE IF NOT EXISTS dim.dim_date (
 );
 
 
--- Dimension Location
+-- ===========================
+-- Dimension: Location
+-- ===========================
+-- Stores country-level location information: used for linking fact tables to geographies
 CREATE TABLE IF NOT EXISTS dim.dim_location (
     location_id SERIAL PRIMARY KEY,
     iso_code    VARCHAR(10) UNIQUE,
     continent   VARCHAR(50),
-    location    VARCHAR(100) NOT NULL
+    location    VARCHAR(100) NOT NULL       -- Full country/region name
 );
