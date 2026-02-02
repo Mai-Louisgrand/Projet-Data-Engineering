@@ -1,17 +1,17 @@
 #!/bin/bash
 # ============================================================
-# Objectif : Peupler les tables dimensionnelles et factuelles
-#            du data warehouse à partir de la table de staging
+# Purpose: Populate dimension and fact tables in the data warehouse
+#          from the staging table
 #
-# Fonctionnalités :
-# - Vérification accès PostgreSQL
-# - Exécution de tous les scripts SQL DML présents dans dml (sauf dim date)
+# Features:
+# - Verify PostgreSQL connectivity
+# - Execute all DML scripts in dml/ folder (excluding dim_date)
 #
-# Usage :
+# Usage:
 #   bash scripts/bash/run_dml.sh
 # ============================================================
 
-set -e  # Stop le script si une commande échoue
+set -e  # Exit immediately if any command fails
 
 echo "Début du peuplement des tables dim/fact"
 
@@ -21,7 +21,7 @@ echo "Début du peuplement des tables dim/fact"
 PROJECT_ROOT=$(pwd)
 POSTGRES_DML_PATH="$PROJECT_ROOT/src/storage/postgres/dml"
 
-# Credentials PostgreSQL (docker-compose)
+# PostgreSQL credentials
 PGUSER="data"
 PGPASSWORD="data"
 PGDATABASE="covid_dw"
@@ -30,7 +30,7 @@ PGPORT=5432
 export PGPASSWORD=$PGPASSWORD
 
 # ------------------------------------------------------------
-# Vérification accès PostgreSQL
+# Verify PostgreSQL connectivity
 # ------------------------------------------------------------
 echo "Vérification de la connexion à PostgreSQL..."
 
@@ -52,7 +52,7 @@ done
 echo "PostgreSQL prêt et accessible"
 
 # ------------------------------------------------------------
-# Exécution des scripts DML
+# Execute DML scripts
 # ------------------------------------------------------------
 echo "Exécution des scripts DML pour peupler dim et fact..."
 
@@ -71,6 +71,5 @@ for dml_file in "$POSTGRES_DML_PATH"/[0-9]*_*.sql; do
         echo "Fichier $dml_file introuvable, étape ignorée."
     fi
 done
-
 
 echo "Peuplement des tables dim/fact terminé."

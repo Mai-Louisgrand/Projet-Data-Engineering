@@ -1,17 +1,17 @@
 #!/bin/bash
 # ============================================================
-# Objectif : Initialiser la couche de stockage du pipeline data
-#   - Création des dossiers ddl/ dml/ si inexistants
-#   - Vérification existence des dossiers data/processed
-#   - Vérification accès PostgreSQL
-#   - Initialisation DDL
-#   - Exécution DML peuplement dim date
+# Purpose: Initialize the storage layer for the data pipeline
+#   - Create directories ddl/ and dml/ if they don't exist
+#   - Verify existence of data/processed directory
+#   - Check PostgreSQL connectivity
+#   - Execute DDL scripts to initialize schemas and tables
+#   - Execute DML scripts to populate date dimension
 #
-# Usage :
+# Usage:
 #   bash scripts/bash/init_storage.sh
 # ============================================================
 
-set -e  # Stop le script si erreur
+set -e  # Exit immediately if any command fails
 
 echo "Initialisation de la couche de stockage..."
 
@@ -23,7 +23,7 @@ DATA_PROCESSED_PATH="$PROJECT_ROOT/data/processed/owid_covid"
 POSTGRES_DDL_PATH="$PROJECT_ROOT/src/storage/postgres/ddl"
 POSTGRES_DML_PATH="$PROJECT_ROOT/src/storage/postgres/dml"
 
-# Credentials PostgreSQL (docker-compose)
+# PostgreSQL credentials
 PGUSER="data"
 PGPASSWORD="data"
 PGDATABASE="covid_dw"
@@ -32,18 +32,15 @@ PGPORT=5432
 export PGPASSWORD=$PGPASSWORD
 
 # ------------------------------------------------------------
-# Création de la structure de dossiers si nécessaire
+# Ensure directory structure exists
 # ------------------------------------------------------------
 echo "Vérification / création des dossiers ddl et dml si inexistant..."
-
 mkdir -p src/storage/postgres/{ddl,dml}
-
 echo "Structure de stockage prête."
 
 # ------------------------------------------------------------
-# Vérification des dossiers data/processed
+# Verify existence of processed data
 # ------------------------------------------------------------
-# Vérifier si data/processed existe et n'est pas vide
 if [ ! -d "$DATA_PROCESSED_PATH" ] || [ -z "$(ls -A $DATA_PROCESSED_PATH)" ]; then
     echo "Dossier data/processed vide ou inexistant : pas de données à charger"
     echo "Veuillez d'abord exécuter la transformation PySpark"
@@ -51,12 +48,12 @@ if [ ! -d "$DATA_PROCESSED_PATH" ] || [ -z "$(ls -A $DATA_PROCESSED_PATH)" ]; th
 fi
 
 # ------------------------------------------------------------
-# Vérification accès PostgreSQL
+# Verify PostgreSQL connectivity
 # ------------------------------------------------------------
 echo "Vérification de la connexion à PostgreSQL..."
 
-MAX_TRIES=5  # nombre de tentatives
-SLEEP_TIME=2  # secondes entre chaque tentative
+MAX_TRIES=5   # maximum number of connection attempts
+SLEEP_TIME=2  # seconds between attempts
 count=0
 
 while ! pg_isready -h $PGHOST -p $PGPORT -U $PGUSER > /dev/null 2>&1; do
@@ -73,7 +70,7 @@ done
 echo "PostgreSQL prêt et accessible"
 
 # ------------------------------------------------------------
-# Initialisation PostgreSQL : exécutions des scripts DDL
+# Execute PostgreSQL DDL scripts
 # ------------------------------------------------------------
 echo "Initialisation des schémas et tables PostgreSQL..."
 
@@ -89,7 +86,7 @@ done
 echo "DDL PostgreSQL exécutés."
 
 # ------------------------------------------------------------
-# Population de la dimension date
+# Populate the date dimension
 # ------------------------------------------------------------
 echo "Peuplement de la dimension date..."
 
@@ -103,11 +100,5 @@ else
     echo "Fichier DML dim_date introuvable : $DIM_DATE_SQL"
     echo "Étape ignorée."
 fi
-
-# ------------------------------------------------------------
-# To DO : Initialisation MongoDB
-# ------------------------------------------------------------
-# echo "Initialisation MongoDB..."
-# mongo < init_mongodb.js
 
 echo "Initialisation de la couche de stockage terminée."
