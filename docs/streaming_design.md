@@ -19,7 +19,9 @@ Le pipeline suit le flux logique suivant :
 4. Consommer les événements via **Spark Structured Streaming**, qui traite les données par petits micro-batchs.  
 5. Écrire les résultats dans une **table de staging PostgreSQL** partagée avec le batch, de façon idempotente.
 
-**Illustration :** `architecture_pipeline.png` et `flux_donnees.png`.
+**Diagrammes :** 
+- [`architecture_pipeline.png`](../docs/diagrams/architecture_pipeline.png)
+- [`flux_donnees.png`](../docs/diagrams/flux_donnees.png)
 
 ## Détails des modules
 ### Modélisation des événements
@@ -54,7 +56,7 @@ Choix techniques :
 - Ecriture dans une **table de staging commune batch/streaming** ;
 - Les tables finales (dim/fact) ne sont jamais alimentées directement par le streaming pour garantir la cohérence globale des données.
 
-Ce dernier point est détaillé plus largement dans `storage_design.md`.
+Ce dernier point est détaillé plus largement dans ([`storage_design.md`](./storage_design.md)),
 
 ## Caractéristiques du pipeline
 ### Déduplication et idempotence

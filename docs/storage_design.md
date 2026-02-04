@@ -20,7 +20,7 @@ Le stockage est structuré en **3 schémas principaux** :
 - **Table de faits `fact_vaccination`** : grain 1 pays / 1 date, table centrale pour les analyses de vaccination.  
 - **Table de staging `stg_owid_covid`** : reçoit les données batch ou streaming, nettoyées et transformées.
 
-**Illustration :** `schema_bdd.png`
+**Diagramme :** [`schema_bdd.png`](../docs/diagrams/schema_bdd.png) 
 
 ## Détails des scripts SQL
 ### Scripts DDL

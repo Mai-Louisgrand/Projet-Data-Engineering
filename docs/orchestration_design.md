@@ -12,7 +12,7 @@ Objectifs :
 - **Flux de données global** : [`flux_donnees.png`](../docs/diagrams/flux_donnees.png)
   Représente le parcours des données depuis la source OWID jusqu’aux tables finales (staging, dimensions, faits).  
 
-- **Orchestration Airflow** : [`airflow_dag.png`](../docs/diagrams/airflow_dag.png)  
+- **Orchestration Airflow** : [`airflow_dags.png`](../docs/diagrams/airflow_dags.png)  
   Représente les DAGs batch et streaming, leurs tâches et dépendances.
 
 ## Pipelines automatisés
