@@ -1,4 +1,10 @@
 # Projet Data Engineering – Pipeline OWID COVID-19
+![Python](https://img.shields.io/badge/python-3.12-blue)
+![Apache Airflow](https://img.shields.io/badge/apache--airflow-2.9-orange)
+![Apache Spark](https://img.shields.io/badge/apache--spark-3.5-red)
+![Kafka](https://img.shields.io/badge/kafka-streaming-6f2da8)
+![PostgreSQL](https://img.shields.io/badge/postgresql-15-blue)
+![Docker](https://img.shields.io/badge/docker-compose-2496ED)
 
 ## Présentation du projet
 Ce projet est un **pipeline de data engineering de bout en bout**, développé dans un cadre personnel afin de :
