@@ -4,7 +4,6 @@
 ![Apache Spark](https://img.shields.io/badge/apache--spark-3.5.1-red)
 ![Kafka](https://img.shields.io/badge/apache--kafka-7.6-purple)
 ![PostgreSQL](https://img.shields.io/badge/postgresql-15-blue)
-![MongoDB](https://img.shields.io/badge/mongodb-6-green)
 ![Docker](https://img.shields.io/badge/docker-compose-2496ED)
 
 ## Présentation du projet
