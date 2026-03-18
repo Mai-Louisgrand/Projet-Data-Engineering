@@ -16,7 +16,7 @@ import psycopg2
 import logging
 
 # Import existing business logic functions
-from src.ingestion.ingestion_owid_batch import create_output_dir, download_csv
+from src.ingestion.ingestion_owid_batch import upload_to_gcs
 from src.transformation.spark_transform_owid import run_transformation
 from src.storage.postgres.load_owid_postgres import run_load
 
@@ -38,40 +38,6 @@ DB_PARAMS = {
 # =============================
 # Airflow task wrapper functions
 # =============================
-# -------- Ingestion --------
-def task_create_raw_dir(ti, **kwargs):
-    '''
-    Create the RAW directory for the current ingestion run and store its path in XCom for downstream tasks.
-    '''
-    logger = logging.getLogger("airflow.task")
-    output_dir = create_output_dir()
-    ti.xcom_push(key='raw_dir', value=str(output_dir)) # store Path as string in XCom for compatibility
-    logger.info(f"Dossier RAW créé : {output_dir}")
-
-def task_download_csv(ti, **kwargs):
-    '''
-    Download CSV file into the RAW directory retrieved from XCom.
-    '''
-    logger = logging.getLogger("airflow.task")
-    output_dir_str = ti.xcom_pull(key='raw_dir')
-    output_dir = Path(output_dir_str)
-    download_csv(output_dir)
-    logger.info(f"CSV téléchargé dans : {output_dir}")
-
-def check_raw_data(ti, **kwargs):
-    '''
-    Verify that the CSV file has been successfully downloaded and is not empty.
-    '''
-    logger = logging.getLogger("airflow.task")
-    raw_dir = Path(ti.xcom_pull(key='raw_dir'))
-    csv_file = raw_dir / "owid_covid_data.csv"
-
-    if not csv_file.exists() or csv_file.stat().st_size == 0:
-        logger.error(f"CSV manquant ou vide dans {raw_dir}")
-        raise ValueError(f"CSV manquant ou vide dans {raw_dir}")
-    
-    logger.info(f"CSV présent et non vide : {csv_file}")
-
 # -------- Transformation --------
 def task_run_transformation(ti, **kwargs):
     '''
@@ -217,24 +183,13 @@ with DAG(
     )
 
     # -------- Ingestion --------
-    create_dir_task = PythonOperator(
-        task_id='create_raw_dir',
-        python_callable=task_create_raw_dir,
-        execution_timeout=timedelta(minutes=3),
-        doc_md="Création du dossier de données RAW"
-    )
-
-    download_csv_task = PythonOperator(
-        task_id='download_csv',
-        python_callable=task_download_csv,
-        execution_timeout=timedelta(minutes=6),
-        doc_md="Téléchargement des données CSV"
-    )
-
-    check_csv_task = PythonOperator(
-        task_id='check_raw_data',
-        python_callable=check_raw_data,
-        execution_timeout=timedelta(minutes=3)
+    ingestion_task = PythonOperator(
+        task_id='stream_to_gcs',
+        python_callable=upload_to_gcs,
+        execution_timeout=timedelta(minutes=10),
+        retries=2,
+        retry_delay=timedelta(minutes=3),
+        doc_md="Tâche d'upload du dataset OWID COVID-19 sur Google Cloud Storage"
     )
 
     # -------- Transformation --------
@@ -293,4 +248,4 @@ with DAG(
 
 
     # Task dependencies
-    start_task >> create_dir_task >> download_csv_task >> check_csv_task  >> transform_task >> quality_check_task >> init_storage_task >> load_task >> check_staging_task >> populate_task >> end_task
+    start_task >> ingestion_task >> transform_task >> quality_check_task >> init_storage_task >> load_task >> check_staging_task >> populate_task >> end_task
