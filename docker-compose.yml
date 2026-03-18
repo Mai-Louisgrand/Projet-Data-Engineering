@@ -120,12 +120,15 @@ services:
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
       PYTHONPATH: /opt/airflow # enable imports from the project src directory in Python scripts
       RUNNING_IN_DOCKER: "1"
+      GOOGLE_APPLICATION_CREDENTIALS: /home/airflow/.config/gcloud/application_default_credentials.json
+      GOOGLE_CLOUD_PROJECT: owid-covid-19-data-engineering
     volumes:
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/logs:/opt/airflow/logs:cached
       - ./src:/opt/airflow/src # business logic
       - ./scripts:/opt/airflow/scripts # bash scripts
       - ./data:/opt/airflow/data # shared datasets & checkpoints
+      - ${HOME}/.config/gcloud:/home/airflow/.config/gcloud:ro # credentials for GCS
     ports:
       - "8080:8080"
     command: "airflow webserver"
@@ -143,12 +146,15 @@ services:
       AIRFLOW__CORE__LOAD_EXAMPLES: "false"
       PYTHONPATH: /opt/airflow # for import in python scripts
       RUNNING_IN_DOCKER: "1"
+      GOOGLE_APPLICATION_CREDENTIALS: /home/airflow/.config/gcloud/application_default_credentials.json
+      GOOGLE_CLOUD_PROJECT: owid-covid-19-data-engineering
     volumes:
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/logs:/opt/airflow/logs:cached
       - ./src:/opt/airflow/src
       - ./scripts:/opt/airflow/scripts
       - ./data:/opt/airflow/data
+      - ${HOME}/.config/gcloud:/home/airflow/.config/gcloud:ro # credentials for GCS
     command: scheduler
 
 # ===========================

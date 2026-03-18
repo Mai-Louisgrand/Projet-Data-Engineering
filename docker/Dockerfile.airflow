@@ -28,4 +28,7 @@ RUN pip install --no-cache-dir pyspark==3.5.1 pandas
 # Install Kafka clients (producer / consumer)
 RUN pip install confluent-kafka kafka-python
 
+# Install Google Cloud dependencies
+RUN pip install --no-cache-dir google-cloud-storage google-auth
+
 USER airflow
