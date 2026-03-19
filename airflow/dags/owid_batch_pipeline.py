@@ -8,6 +8,7 @@ Airflow DAG: owid_batch_pipeline
 from pathlib import Path
 from airflow import DAG
 from airflow.operators.python import PythonOperator
+from airflow.operators.bash import BashOperator
 from datetime import datetime, timedelta
 
 import subprocess
@@ -38,31 +39,6 @@ DB_PARAMS = {
 # =============================
 # Airflow task wrapper functions
 # =============================
-# -------- Transformation --------
-def task_run_transformation(ti, **kwargs):
-    '''
-    Execute the OWID COVID transformation using PySpark.
-    '''
-    logger = logging.getLogger("airflow.task")
-    raw_dir_str = ti.xcom_pull(key='raw_dir')
-    raw_dir = Path(raw_dir_str)
-    run_transformation(raw_path=str(raw_dir))
-    logger.info(f"Transformation terminée pour RAW : {raw_dir}")
-
-def check_transformed_data(**kwargs):
-    '''
-    Verify that transformed Parquet files exist before loading them into storage.
-    '''
-    logger = logging.getLogger("airflow.task")
-    processed_dir = kwargs["params"]["processed_dir"]
-
-    parquet_files = list(Path(processed_dir).glob("**/*.parquet"))
-    if not parquet_files:
-        logger.error(f"Pas de fichiers transformés dans {processed_dir}")
-        raise ValueError(f"Pas de fichiers transformés dans {processed_dir} à charger")
-    
-    logger.info(f"{len(parquet_files)} fichiers transformés prêts à être chargés")
-
 # -------- Storage --------
 def task_run_init_storage():
     '''
@@ -193,22 +169,34 @@ with DAG(
     )
 
     # -------- Transformation --------
+    '''
     transform_task = PythonOperator(
-        task_id='transformation_owid',
-        python_callable=task_run_transformation,
-        retries=2,
-        retry_delay=timedelta(minutes=5),
+        task_id="transformation_owid",
+        python_callable=run_transformation,
         execution_timeout=timedelta(minutes=10),
+        retries=2,
+        retry_delay=timedelta(minutes=3),
+        doc_md="Transformation PySpark des fichiers RAW vers Parquet"
+    )
+    '''
+    transform_task = BashOperator(
+        task_id="transformation_owid",
+        bash_command="""
+        docker exec spark-master bash -c '
+        PYTHONPATH=/opt/app /opt/spark/bin/spark-submit \
+            --master spark://spark-master:7077 \
+            --conf "spark.driver.extraJavaOptions=-Duser.home=/tmp" \
+            --conf "spark.executor.extraJavaOptions=-Duser.home=/tmp" \
+            --packages com.google.cloud.bigdataoss:gcs-connector:hadoop3-2.2.2 \
+            /opt/app/src/transformation/spark_transform_owid.py
+        '
+        """,
+        execution_timeout=timedelta(minutes=10),
+        retries=2,
+        retry_delay=timedelta(minutes=3),
         doc_md="Transformation PySpark des fichiers RAW vers Parquet"
     )
 
-    quality_check_task = PythonOperator(
-        task_id='check_transformed_data',
-        python_callable=check_transformed_data,
-        params={"processed_dir": str(DEFAULT_PROCESSED_DIR)},
-        execution_timeout=timedelta(minutes=3),
-        doc_md="Vérification de l'existence des fichiers transformés avant stockage"
-    )
 
     # -------- Storage --------
     init_storage_task = PythonOperator(
@@ -248,4 +236,4 @@ with DAG(
 
 
     # Task dependencies
-    start_task >> ingestion_task >> transform_task >> quality_check_task >> init_storage_task >> load_task >> check_staging_task >> populate_task >> end_task
+    start_task >> ingestion_task >> transform_task >> init_storage_task >> load_task >> check_staging_task >> populate_task >> end_task

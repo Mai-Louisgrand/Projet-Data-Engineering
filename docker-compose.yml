@@ -114,6 +114,7 @@ services:
       - airflow_db:/var/lib/postgresql/data
 
   airflow-webserver:
+    user: root
     build:
       context: ./docker
       dockerfile: Dockerfile.airflow
@@ -135,11 +136,13 @@ services:
       - ./scripts:/opt/airflow/scripts # bash scripts
       - ./data:/opt/airflow/data # shared datasets & checkpoints
       - ${HOME}/.config/gcloud:/home/airflow/.config/gcloud:ro # credentials for GCS
+      - /var/run/docker.sock:/var/run/docker.sock
     ports:
       - "8080:8080"
     command: "airflow webserver"
 
   airflow-scheduler:
+    user: root
     build:
       context: ./docker
       dockerfile: Dockerfile.airflow
@@ -160,7 +163,8 @@ services:
       - ./src:/opt/airflow/src
       - ./scripts:/opt/airflow/scripts
       - ./data:/opt/airflow/data
-      - ${HOME}/.config/gcloud:/home/airflow/.config/gcloud:ro # credentials for GCS
+      - ${HOME}/.config/gcloud:/home/airflow/.config/gcloud:ro
+      - /var/run/docker.sock:/var/run/docker.sock
     command: scheduler
 
 # ===========================
