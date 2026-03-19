@@ -14,7 +14,7 @@ import logging
 from google.cloud.exceptions import GoogleCloudError
 
 from src.storage.gcs.client import GCSClient
-from src.ingestion.config import LOG_PATH, OWID_COVID_CSV_URL, INGESTION_DATE, GCS_BUCKET_NAME, LOG_FORMAT
+from src.config.settings import OWID_COVID_CSV_URL, INGESTION_DATE, GCS_BUCKET_NAME, RAW_PREFIX, LOG_FORMAT, LOG_PATH
 
 # ============================
 # Logging configuration
@@ -57,7 +57,7 @@ def upload_to_gcs():
         gcs = GCSClient(GCS_BUCKET_NAME)
 
         destination_path = (
-            f"raw/owid_covid/ingestion_date={INGESTION_DATE}/"
+            f"{RAW_PREFIX}/ingestion_date={INGESTION_DATE}/"
             f"owid_covid_data.csv"
         )
 
