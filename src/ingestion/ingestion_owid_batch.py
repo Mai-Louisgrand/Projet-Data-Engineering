@@ -12,6 +12,7 @@ import requests # to download remote files
 from datetime import datetime, timezone
 import logging
 from google.cloud.exceptions import GoogleCloudError
+from io import BytesIO
 
 from src.storage.gcs.client import GCSClient
 from src.config.settings import OWID_COVID_CSV_URL, INGESTION_DATE, GCS_BUCKET_NAME, RAW_PREFIX, LOG_FORMAT, LOG_PATH
@@ -62,7 +63,7 @@ def upload_to_gcs():
         )
 
         # Upload the stream directly to GCS
-        gcs.upload_file(response.raw, destination_path)
+        gcs.upload_file(BytesIO(response.content), destination_path)
 
         logging.info("Upload vers GCS réussi")
 
