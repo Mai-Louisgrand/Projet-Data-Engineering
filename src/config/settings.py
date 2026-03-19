@@ -29,3 +29,4 @@ LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
 
 # Execution
 INGESTION_DATE = date.today().isoformat()
+PROFILING_OUTPUT_PATH = PROJECT_ROOT / "data/profiling/owid_covid"
