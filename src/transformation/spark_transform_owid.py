@@ -66,11 +66,11 @@ def run_transformation():
         .master("local[*]")
         .config("spark.jars.packages", "com.google.cloud.bigdataoss:gcs-connector:hadoop3-2.2.2")
         
-        # Auth
+        # Credentials
         .config("spark.hadoop.google.cloud.auth.service.account.enable", "true")
         .config("spark.hadoop.google.cloud.auth.service.account.json.keyfile", GCP_CREDENTIALS_JSON)
 
-        # GCS 
+        # GCS config
         .config("spark.hadoop.fs.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem")
         .config("spark.hadoop.fs.AbstractFileSystem.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFS")
         .config("spark.hadoop.mapreduce.fileoutputcommitter.algorithm.version", "2")
@@ -161,9 +161,6 @@ def run_transformation():
         .partitionBy("iso_code") # One folder per country
         .parquet(output_path)
     )
-
-    df = spark.read.parquet("gs://owid-datalake-dev-eu-2026/processed/owid_covid/")
-    df.select("iso_code", "total_vaccinations_per_hundred").show(10)
 
 # ============================
 # Standalone execution
