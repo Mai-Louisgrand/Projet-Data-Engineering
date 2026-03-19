@@ -10,17 +10,11 @@ Performs basic profiling of the raw dataset:
 '''
 
 import logging
+import os
 from pathlib import Path
-
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, count, when, lit, round as spark_round
-
-# ============================
-# Configuration
-# ============================
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-RAW_DATA_PATH = PROJECT_ROOT / "data/raw/owid_covid"
-PROFILING_OUTPUT_PATH = PROJECT_ROOT / "data/profiling/owid_covid"
+from src.config.settings import PROJECT_ROOT, PROFILING_OUTPUT_PATH, INGESTION_DATE, GCS_BUCKET_NAME, RAW_PREFIX, LOG_FORMAT, LOG_PATH
 
 # ============================
 # Logging setup
@@ -35,38 +29,57 @@ logger = logging.getLogger(__name__)
 # ============================
 # Profiling helper functions
 # ============================
+# credentials to access gcs
+GCP_CREDENTIALS_JSON = os.environ.get(
+    "GOOGLE_APPLICATION_CREDENTIALS",
+    str(Path.home() / ".config/gcloud/application_default_credentials.json")
+)
+
 def create_spark_session() -> SparkSession:
     '''
-    Initialize a local SparkSession for profiling.
+    Initialize a SparkSession for profiling that can read directly to GCS.
     
     :return: SparkSession object
     '''
-    return (
+    spark = (
         SparkSession.builder
         .appName("OWID_COVID_Profiling")
-        .master("local[*]")
+        .master("local[*]") 
+        # GCS Connector Maven package
+        .config("spark.jars.packages", "com.google.cloud.bigdataoss:gcs-connector:hadoop3-2.2.2")
+        # Connection with service account 
+        .config("spark.hadoop.fs.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem")
+        .config("spark.hadoop.google.cloud.auth.service.account.enable", "true")
+        .config("spark.hadoop.google.cloud.auth.service.account.json.keyfile", GCP_CREDENTIALS_JSON)
         .getOrCreate()
     )
+    return spark
 
 def load_raw_data(spark: SparkSession):
     '''
-    Load the most recent raw OWID CSV from the ingestion folder.
+    Load the latest raw OWID CSV from the ingestion folder.
 
     :param spark: SparkSession object
     :return: DataFrame containing the raw dataset
     '''
-    latest_ingestion = max(RAW_DATA_PATH.glob("ingestion_date=*"))
-    csv_path = latest_ingestion / "owid_covid_data.csv"
-
-    logger.info(f"Chargement des données depuis {csv_path}")
-
-    df = (
-        spark.read
-        .option("header", True)
-        .option("inferSchema", True)
-        .csv(str(csv_path))
+    gcs_path = (
+        f"gs://{GCS_BUCKET_NAME}/{RAW_PREFIX}/"
+        f"ingestion_date={INGESTION_DATE}/owid_covid_data.csv"
     )
-    return df
+
+    try:
+        logger.info(f"Chargement des données depuis {gcs_path}")
+
+        df = (
+            spark.read
+            .option("header", True)
+            .option("inferSchema", True)
+            .csv(gcs_path)
+        )
+        return df
+    except Exception as e:
+        logger.error(f"Erreur lors de la lecture des données depuis GCS : {e}")
+        raise
 
 # ============================
 # Profiling functions
@@ -204,6 +217,8 @@ def main():
 
     spark = create_spark_session()
     df = load_raw_data(spark)
+    
+    PROFILING_OUTPUT_PATH.mkdir(parents=True, exist_ok=True)
 
     show_basic_info(df)
     sample_data(df)
