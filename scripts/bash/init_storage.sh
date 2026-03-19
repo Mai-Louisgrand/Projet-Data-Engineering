@@ -1,8 +1,6 @@
 #!/bin/bash
 # ============================================================
 # Purpose: Initialize the storage layer for the data pipeline
-#   - Create directories ddl/ and dml/ if they don't exist
-#   - Verify existence of data/processed directory
 #   - Check PostgreSQL connectivity
 #   - Execute DDL scripts to initialize schemas and tables
 #   - Execute DML scripts to populate date dimension
@@ -19,7 +17,6 @@ echo "[init_storage] Initialisation de la couche de stockage..."
 # Variables
 # ------------------------------------------------------------
 PROJECT_ROOT=$(pwd)
-DATA_PROCESSED_PATH="$PROJECT_ROOT/data/processed/owid_covid"
 POSTGRES_DDL_PATH="$PROJECT_ROOT/src/storage/postgres/ddl"
 POSTGRES_DML_PATH="$PROJECT_ROOT/src/storage/postgres/dml"
 
@@ -30,22 +27,6 @@ PGPASSWORD=${PGPASSWORD:-data}
 PGDATABASE=${PGDATABASE:-covid_dw}
 PGPORT=${PGPORT:-5432}
 export PGPASSWORD=$PGPASSWORD
-
-# ------------------------------------------------------------
-# Ensure directory structure exists
-# ------------------------------------------------------------
-echo "[init_storage] Vérification / création des dossiers ddl et dml si inexistant..."
-mkdir -p src/storage/postgres/{ddl,dml}
-echo "[init_storage] Structure de stockage prête."
-
-# ------------------------------------------------------------
-# Verify existence of processed data
-# ------------------------------------------------------------
-if [ ! -d "$DATA_PROCESSED_PATH" ] || [ -z "$(ls -A $DATA_PROCESSED_PATH)" ]; then
-    echo "[init_storage] Dossier data/processed vide ou inexistant : pas de données à charger"
-    echo "[init_storage] Veuillez d'abord exécuter la transformation PySpark"
-    exit 1
-fi
 
 # ------------------------------------------------------------
 # Verify PostgreSQL connectivity

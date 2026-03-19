@@ -18,15 +18,11 @@ import logging
 
 # Import existing business logic functions
 from src.ingestion.ingestion_owid_batch import upload_to_gcs
-from src.transformation.spark_transform_owid import run_transformation
 from src.storage.postgres.load_owid_postgres import run_load
 
 # =============================
 # Configuration
 # =============================
-# Default paths
-DEFAULT_PROCESSED_DIR = Path("data/processed/owid_covid")
-
 # PostgreSQL connection parameters
 DB_PARAMS = {
     "PGHOST": "postgres",        # PostgreSQL container hostname from Airflow
@@ -54,15 +50,16 @@ def task_run_init_storage():
     
     logger.info("Initialisation PostgreSQL terminée")
 
-def task_load_staging(ti, **kwargs):
-    '''
+'''
+def task_load_staging():
+    
     Load transformed Parquet files into the PostgreSQL staging table.
-    '''
+    
     logger = logging.getLogger("airflow.task")
 
-    processed_dir = kwargs["params"]["processed_dir"]
-    run_load(parquet_path=processed_dir, pg_host=DB_PARAMS["PGHOST"])
-    logger.info(f"Chargement Parquet -> staging terminé : {processed_dir}")
+    run_load(pg_host=DB_PARAMS["PGHOST"])
+    logger.info(f"Chargement Parquet -> staging terminé")
+'''
 
 def check_staging_data(**kwargs):
     '''
@@ -143,9 +140,6 @@ with DAG(
     start_date=datetime(2026, 1, 16),
     schedule_interval='@daily',       # daily execution
     catchup=False,                    # Disable backfilling of past DAG runs
-    params={
-        "processed_dir": str(DEFAULT_PROCESSED_DIR),
-    },
     doc_md="""
     ## Pipeline batch OWID COVID-19
     - Pipeline : start -> ingestion -> transformation -> quality check -> staging -> populate -> end
@@ -169,16 +163,6 @@ with DAG(
     )
 
     # -------- Transformation --------
-    '''
-    transform_task = PythonOperator(
-        task_id="transformation_owid",
-        python_callable=run_transformation,
-        execution_timeout=timedelta(minutes=10),
-        retries=2,
-        retry_delay=timedelta(minutes=3),
-        doc_md="Transformation PySpark des fichiers RAW vers Parquet"
-    )
-    '''
     transform_task = BashOperator(
         task_id="transformation_owid",
         bash_command="""
@@ -197,7 +181,6 @@ with DAG(
         doc_md="Transformation PySpark des fichiers RAW vers Parquet"
     )
 
-
     # -------- Storage --------
     init_storage_task = PythonOperator(
         task_id="init_storage",
@@ -205,10 +188,20 @@ with DAG(
         execution_timeout=timedelta(minutes=6),
         doc_md="Initialisation de la BDD PostgreSQL"
     )
-    
-    load_task = PythonOperator(
-        task_id='load_staging',
-        python_callable=task_load_staging,
+
+    load_task = BashOperator(
+        task_id="load_staging",
+        bash_command="""
+        docker exec spark-master bash -c '
+        PYTHONPATH=/opt/app /opt/spark/bin/spark-submit \
+            --master spark://spark-master:7077 \
+            --conf "spark.driver.extraJavaOptions=-Duser.home=/tmp" \
+            --conf "spark.executor.extraJavaOptions=-Duser.home=/tmp" \
+            --packages com.google.cloud.bigdataoss:gcs-connector:hadoop3-2.2.2,org.postgresql:postgresql:42.6.0 \
+            /opt/app/src/storage/postgres/load_owid_postgres.py \
+            --pg_host postgres
+        '
+        """,
         execution_timeout=timedelta(minutes=6),
         doc_md="Chargement des données transformées dans la table de staging"
     )
