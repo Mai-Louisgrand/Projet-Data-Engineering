@@ -52,8 +52,11 @@ services:
     environment:
       - SPARK_MODE=master
       - RUNNING_IN_DOCKER=1
+      - GOOGLE_APPLICATION_CREDENTIALS=/home/airflow/.config/gcloud/application_default_credentials.json
+      - GOOGLE_CLOUD_PROJECT=owid-covid-19-data-engineering
     volumes:
       - ./:/opt/app
+      - ${HOME}/.config/gcloud:/home/airflow/.config/gcloud:ro
     ports:
       - "7077:7077"
       - "8081:8080"
@@ -68,8 +71,11 @@ services:
       - SPARK_MODE=worker
       - RUNNING_IN_DOCKER=1
       - SPARK_MASTER_URL=spark://spark-master:7077
+      - GOOGLE_APPLICATION_CREDENTIALS=/home/airflow/.config/gcloud/application_default_credentials.json
+      - GOOGLE_CLOUD_PROJECT=owid-covid-19-data-engineering
     volumes:
       - ./:/opt/app
+      - ${HOME}/.config/gcloud:/home/airflow/.config/gcloud:ro
     command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.worker.Worker", "spark://spark-master:7077"]
 
   # ===========================
