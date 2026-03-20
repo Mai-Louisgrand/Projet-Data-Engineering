@@ -4,28 +4,20 @@ OWID COVID-19 Data Transformation – Vaccination
 This script performs the following tasks:
 - Cleans and structures country-level vaccination data.
 - Recalculates normalized indicators per 100 inhabitants.
-- Writes processed data as partitioned Parquet files per country, ready for downstream analytical processing or ingestion.
+- Writes processed data as partitioned Parquet files per country in GCS, ready for downstream analytical processing or ingestion.
 '''
 
+import os
 from pathlib import Path
 from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql.types import DoubleType
+from src.config.settings import RAW_PREFIX, INGESTION_DATE, GCS_BUCKET_NAME, PROCESSED_PATH, LOG_FORMAT, LOG_PATH
+
 
 # ============================
 # Helper functions
 # ============================
-def create_processed_dir() -> Path:
-    '''
-    Create the 'processed' directory to store transformed data if it does not exist.
-    
-    :return: Path to the processed data directory
-    '''
-    PROJECT_ROOT = Path(__file__).resolve().parents[2]
-    processed_dir = PROJECT_ROOT / "data" / "processed" / "owid_covid"
-    processed_dir.mkdir(parents=True, exist_ok=True)
-    return processed_dir
-
 def per_hundred(metric_col: str):
     '''
     Compute normalized indicator per 100 inhabitants.
@@ -48,35 +40,58 @@ def per_hundred(metric_col: str):
 # ============================
 # Main function
 # ============================
-def run_transformation(raw_path: str = "data/raw/owid_covid/"):
-    """
+def run_transformation():
+    '''
     OWID COVID-19 Vaccination Data Transformation
 
     This function:
-    - Loads raw CSV data,
+    - Loads raw CSV data from GCS bucket,
     - Cleans and structures the dataset,
     - Computes normalized indicators per 100 inhabitants,
     - Writes processed data as partitioned Parquet files by country.
 
     :param raw_path: Path to the raw CSV files
-    """
-    processed_dir = create_processed_dir()
-    output_path = str(processed_dir)
+    '''
+    output_path = PROCESSED_PATH
+
+    # credentials to access gcs
+    GCP_CREDENTIALS_JSON = os.environ.get(
+        "GOOGLE_APPLICATION_CREDENTIALS",
+        str(Path.home() / ".config/gcloud/application_default_credentials.json")
+    )
 
     spark = (
         SparkSession.builder
         .appName("OWID_COVID_Transformation")
+        .master("local[*]")
+        .config("spark.jars.packages", "com.google.cloud.bigdataoss:gcs-connector:hadoop3-2.2.2")
+        
+        # Credentials
+        .config("spark.hadoop.google.cloud.auth.service.account.enable", "true")
+        .config("spark.hadoop.google.cloud.auth.service.account.json.keyfile", GCP_CREDENTIALS_JSON)
+
+        # GCS config
+        .config("spark.hadoop.fs.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem")
+        .config("spark.hadoop.fs.AbstractFileSystem.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFS")
+        .config("spark.hadoop.mapreduce.fileoutputcommitter.algorithm.version", "2")
+        .config("spark.hadoop.mapreduce.outputcommitter.factory.scheme.gs", "org.apache.hadoop.fs.gs.GCSOutputCommitterFactory")
+
         .getOrCreate()
     )
 
     # ============================
-    # Read RAW data
+    # Read RAW data from GCS
     # ============================
+    gcs_path = (
+        f"gs://{GCS_BUCKET_NAME}/{RAW_PREFIX}/"
+        f"ingestion_date={INGESTION_DATE}/owid_covid_data.csv"
+    )
+
     df = (
         spark.read
         .option("header", True)
         .option("inferSchema", True)
-        .csv(raw_path)
+        .csv(gcs_path)
     )
 
     # ============================

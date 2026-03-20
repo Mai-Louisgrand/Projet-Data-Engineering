@@ -2,16 +2,20 @@
 OWID COVID-19 Vaccination Data Loader – Parquet to PostgreSQL Staging
 
 This script performs the following tasks:
-- Reads transformed and partitioned Parquet files by country (iso_code)
+- Reads transformed and partitioned Parquet files by country (iso_code) from GCS
 - Enriches data with technical metadata (load date)
 - Loads the batch dataset into a PostgreSQL staging table via JDBC
 '''
 
 import logging
+import os
 import psycopg2
+import argparse
 from datetime import date
+from pathlib import Path
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import lit
+from src.config.settings import PROCESSED_PATH
 
 # ============================
 # Logging setup
@@ -26,7 +30,7 @@ logger = logging.getLogger(__name__)
 # Main function
 # ============================
 def run_load(
-    parquet_path: str = "data/processed/owid_covid",
+    parquet_path: str = PROCESSED_PATH,
     pg_host: str = "localhost",
     pg_port: str = "5432",
     pg_db: str = "covid_dw",
@@ -45,12 +49,23 @@ def run_load(
     :param pg_password: PostgreSQL password
     :param pg_table: Target staging table in PostgreSQL
     '''
+    GCP_CREDENTIALS_JSON = os.environ.get(
+        "GOOGLE_APPLICATION_CREDENTIALS",
+        str(Path.home() / ".config/gcloud/application_default_credentials.json")
+    )
 
     # Initialize Spark session with PostgreSQL JDBC driver
     spark = (
         SparkSession.builder
         .appName("Load OWID COVID Parquet to PostgreSQL Staging")
-        .config("spark.jars.packages", "org.postgresql:postgresql:42.6.0")
+        # JDBC + GCS
+        .config("spark.jars.packages", "org.postgresql:postgresql:42.6.0,com.google.cloud.bigdataoss:gcs-connector:hadoop3-2.2.2")
+        # GCS config
+        .config("spark.hadoop.fs.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem")
+        .config("spark.hadoop.fs.AbstractFileSystem.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFS")
+        # Credentials
+        .config("spark.hadoop.google.cloud.auth.service.account.enable", "true")
+        .config("spark.hadoop.google.cloud.auth.service.account.json.keyfile", GCP_CREDENTIALS_JSON)
         .getOrCreate()
         )
 
@@ -60,7 +75,7 @@ def run_load(
         # ============================
         # Load Parquet files
         # ============================
-        logger.info("Lecture des fichiers Parquet de data/processed")
+        logger.info("Lecture des fichiers Parquet")
         df = spark.read.parquet(parquet_path) #lit tous les fichiers Parquet sous PARQUET_PATH, en prenant en compte les partitions
 
         logger.info(f"Nombre de lignes lues : {df.count()}")
@@ -118,4 +133,20 @@ def run_load(
 # Standalone execution
 # ============================
 if __name__ == "__main__":
-    run_load()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--parquet_path", default=None)
+    parser.add_argument("--pg_host", default="localhost")
+    parser.add_argument("--pg_port", default="5432")
+    parser.add_argument("--pg_db", default="covid_dw")
+    parser.add_argument("--pg_user", default="data")
+    parser.add_argument("--pg_password", default="data")
+    args = parser.parse_args()
+
+    run_load(
+        parquet_path=args.parquet_path or PROCESSED_PATH,
+        pg_host=args.pg_host,
+        pg_port=args.pg_port,
+        pg_db=args.pg_db,
+        pg_user=args.pg_user,
+        pg_password=args.pg_password,
+    )

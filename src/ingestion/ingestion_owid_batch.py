@@ -1,17 +1,21 @@
 '''
-Batch ingestion script for OWID COVID-19 data.
+Batch ingestion script for OWID COVID-19 data
 
 This module is responsible for:
 - downloading the OWID COVID-19 CSV dataset from the official OWID GitHub repository
-- creating a date-partitioned RAW directory for data historization
-- logging ingestion execution details for traceability and monitoring
+- streaming the dataset directly to a Google Cloud Storage (GCS) bucket
+- organizing raw data in a date-partitioned structure inside the data lake
+- logging execution details for traceability and monitoring
 '''
 
 import requests # to download remote files
-from pathlib import Path
 from datetime import datetime, timezone
 import logging
-from src.ingestion.config import RAW_DATA_PATH, LOG_PATH, OWID_COVID_CSV_URL, INGESTION_DATE, HTTP_CHUNK_SIZE, LOG_FORMAT
+from google.cloud.exceptions import GoogleCloudError
+from io import BytesIO
+
+from src.storage.gcs.client import GCSClient
+from src.config.settings import OWID_COVID_CSV_URL, INGESTION_DATE, GCS_BUCKET_NAME, RAW_PREFIX, LOG_FORMAT, LOG_PATH
 
 # ============================
 # Logging configuration
@@ -34,38 +38,37 @@ logging.getLogger('').addHandler(console)
 # ============================
 # Ingestion helper functions
 # ============================
-def create_output_dir() -> Path:
+def upload_to_gcs():
     '''
-    Create the RAW output directory for the current ingestion date.
-
-    :return: Path to the date-partitioned RAW ingestion directory
-    '''
-    output_dir = RAW_DATA_PATH / f"ingestion_date={INGESTION_DATE}"
-    output_dir.mkdir(parents=True, exist_ok=True)
-    logging.info(f"Dossier RAW créé : {output_dir}")
-    return output_dir
-
-def download_csv(output_dir: Path) -> Path:
-    '''
-    Download the OWID COVID-19 CSV dataset and store it in the RAW directory.
-
-    :param output_dir: Target directory where the CSV file will be stored
-    :return: Path to the downloaded CSV file
+    Downloads the OWID dataset and uploads it directly to a GCS bucket.
+    This approach avoids any intermediate local storage.
     '''
     try:
-        logging.info(f"Téléchargement du CSV depuis {OWID_COVID_CSV_URL}...")
-        response = requests.get(OWID_COVID_CSV_URL, stream=True)
+        logging.info(f"Téléchargement depuis {OWID_COVID_CSV_URL}")
+
+        response = requests.get(OWID_COVID_CSV_URL, stream=True, timeout=60)
         response.raise_for_status()
 
-        output_file = output_dir / "owid_covid_data.csv"
-        with open(output_file, "wb") as f:
-            for chunk in response.iter_content(chunk_size=HTTP_CHUNK_SIZE):
-                f.write(chunk)
-
-        logging.info(f"Fichier téléchargé et sauvegardé : {output_file}")
-        return output_file
-    except Exception as e:
+    except requests.exceptions.RequestException as e:
         logging.error(f"Erreur lors du téléchargement : {e}")
+        raise
+
+    try:
+        # Initialize the GCS client
+        gcs = GCSClient(GCS_BUCKET_NAME)
+
+        destination_path = (
+            f"{RAW_PREFIX}/ingestion_date={INGESTION_DATE}/"
+            f"owid_covid_data.csv"
+        )
+
+        # Upload the stream directly to GCS
+        gcs.upload_file(BytesIO(response.content), destination_path)
+
+        logging.info("Upload vers GCS réussi")
+
+    except GoogleCloudError as e:
+        logging.error(f"Erreur GCS : {e}")
         raise
 
 # ============================
@@ -74,15 +77,11 @@ def download_csv(output_dir: Path) -> Path:
 def main():
     '''
     Execute the OWID COVID-19 batch ingestion workflow.
-
-    This function orchestrates directory creation, data download,
-    and execution logging.
     '''
     start_time = datetime.now(timezone.utc)
     logging.info(f"Début de l'ingestion OWID COVID : {start_time.isoformat()}")
 
-    output_dir = create_output_dir()
-    download_csv(output_dir)
+    upload_to_gcs()
 
     end_time = datetime.now(timezone.utc)
     duration = (end_time - start_time).seconds
