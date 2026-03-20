@@ -4,7 +4,7 @@ OWID COVID-19 Data Transformation – Vaccination
 This script performs the following tasks:
 - Cleans and structures country-level vaccination data.
 - Recalculates normalized indicators per 100 inhabitants.
-- Writes processed data as partitioned Parquet files per country in GCS, ready for downstream analytical processing or ingestion.
+- Writes processed data as Parquet files per country in GCS, ready for downstream analytical processing or ingestion.
 '''
 
 import os
@@ -155,10 +155,9 @@ def run_transformation():
     # ============================
     (
         df
-        .repartition("iso_code") # Repartition by country code for Spark optimization
+        .repartition(4) # Repartition for Spark optimization
         .write
         .mode("overwrite")
-        .partitionBy("iso_code") # One folder per country
         .parquet(output_path)
     )
 
