@@ -55,7 +55,7 @@ def init_bigquery():
     # Tables creation
     # ============================
     # Execute DDL SQL files
-    DDL_DIR = Path(__file__).parent / "sql"
+    DDL_DIR = Path(__file__).parent / "sql" / "ddl"
     ddl_files = sorted(DDL_DIR.glob("*.sql"))
 
     if not ddl_files:
@@ -71,7 +71,7 @@ def init_bigquery():
                 logger.error(f"Erreur lors de l'exécution de {ddl_file.name}: {e}")
 
     # Execute DML SQL files for dim date
-    DIM_DATE_SQL = DDL_DIR.parent / "sql" / "010_insert_dim_date.sql"
+    DIM_DATE_SQL = DDL_DIR.parent / "dml" / "010_insert_dim_date.sql"
     if DIM_DATE_SQL.is_file():
         logger.info(f"Peuplement de dim.date via {DIM_DATE_SQL.name} ...")
         sql = DIM_DATE_SQL.read_text()
