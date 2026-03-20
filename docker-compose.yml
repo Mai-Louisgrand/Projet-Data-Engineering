@@ -47,7 +47,9 @@ services:
   # DISTRIBUTED PROCESSING (Apache Spark)
   # ===========================
   spark-master:
-    image: spark:latest
+    build:
+      context: ./docker
+      dockerfile: Dockerfile.spark
     container_name: spark-master
     environment:
       - SPARK_MODE=master
@@ -63,7 +65,9 @@ services:
     command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.master.Master"]
 
   spark-worker:
-    image: spark:latest
+    build:
+      context: ./docker
+      dockerfile: Dockerfile.spark
     container_name: spark-worker
     depends_on:
       - spark-master

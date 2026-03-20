@@ -1,0 +1,10 @@
+# Dockerfile.spark
+# ============================================================
+# Spark Docker image
+# ============================================================
+FROM spark:latest
+
+# Install Python packages
+USER root
+RUN pip install --no-cache-dir psycopg2-binary pyspark==3.5.1 confluent_kafka google-cloud-storage google-auth
+
