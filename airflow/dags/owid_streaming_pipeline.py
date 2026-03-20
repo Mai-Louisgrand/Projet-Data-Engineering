@@ -4,13 +4,12 @@ Airflow DAG: owid_streaming_pipeline
 Orchestrates a simulated OWID COVID-19 streaming pipeline using Kafka (producer) and Spark Structured Streaming (consumer)
 '''
 
-from pathlib import Path
 from datetime import datetime, timedelta
 from airflow import DAG
 from airflow.operators.python import PythonOperator
+from airflow.operators.bash import BashOperator
 from kafka.admin import KafkaAdminClient, NewTopic
 
-from src.streaming.producer.owid_event_producer import run_producer
 from src.streaming.consumer.owid_stream_processing import run_consumer
 
 import logging
@@ -19,9 +18,6 @@ import os
 # ============================
 # Configuration
 # ============================
-# Input path for processed OWID data (used by the Kafka producer)
-INPUT_PATH = Path("/opt/airflow/data/processed/owid_covid")
-
 # Kafka configuration
 KAFKA_BOOTSTRAP_SERVERS = os.getenv("KAFKA_BOOTSTRAP_SERVERS", "kafka:29092")
 TOPIC_NAME = "owid_vaccination_events"
@@ -64,7 +60,7 @@ with DAG(
     "owid_streaming_pipeline",
     description="Pipeline streaming simulé OWID via Kafka + consumer Spark",
     default_args=default_args,
-    start_date=datetime(2026, 1, 30),
+    start_date=datetime(2022, 1, 30),
     schedule_interval=None,  # Event-driven / manual execution
     catchup=False,
     params={"target_date": "{{ ds }}"},  # Date used to simulate the streaming events
@@ -91,13 +87,22 @@ with DAG(
     )
 
     # -------- Producer --------
-    start_producer_task = PythonOperator(
-        task_id="start_kafka_producer",
-        python_callable=run_producer,
-        op_kwargs={"input_path": INPUT_PATH, "target_date": "{{ params.target_date }}"},
-        execution_timeout=timedelta(minutes=6),
-        doc_md="Tâche de démarrage du producer"
-    )
+    start_producer_task = BashOperator(
+    task_id="start_kafka_producer",
+    bash_command="""
+    docker exec spark-master bash -c '
+        PYTHONPATH=/opt/app /opt/spark/bin/spark-submit \
+            --master spark://spark-master:7077 \
+            --conf "spark.driver.extraJavaOptions=-Duser.home=/tmp" \
+            --conf "spark.executor.extraJavaOptions=-Duser.home=/tmp" \
+            --packages com.google.cloud.bigdataoss:gcs-connector:hadoop3-2.2.2 \
+            /opt/app/src/streaming/producer/owid_event_producer.py \
+            --target_date 2022-05-01
+    '
+    """,
+    execution_timeout=timedelta(minutes=6),
+    doc_md="Tâche de démarrage du producer"
+)
 
     # -------- Consumer --------
     run_consumer_task = PythonOperator(
