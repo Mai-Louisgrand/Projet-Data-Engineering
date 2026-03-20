@@ -5,7 +5,6 @@ Airflow DAG: owid_batch_pipeline
  - Orchestration of ingestion, transformation, and loading into PostgreSQL with monitoring handled by Airflow
 '''
 
-from pathlib import Path
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.operators.bash import BashOperator
@@ -18,7 +17,6 @@ import logging
 
 # Import existing business logic functions
 from src.ingestion.ingestion_owid_batch import upload_to_gcs
-from src.storage.postgres.load_owid_postgres import run_load
 
 # =============================
 # Configuration
@@ -49,17 +47,6 @@ def task_run_init_storage():
     subprocess.run(["/opt/airflow/scripts/bash/init_storage.sh"], env=env, check=True)
     
     logger.info("Initialisation PostgreSQL terminée")
-
-'''
-def task_load_staging():
-    
-    Load transformed Parquet files into the PostgreSQL staging table.
-    
-    logger = logging.getLogger("airflow.task")
-
-    run_load(pg_host=DB_PARAMS["PGHOST"])
-    logger.info(f"Chargement Parquet -> staging terminé")
-'''
 
 def check_staging_data(**kwargs):
     '''
