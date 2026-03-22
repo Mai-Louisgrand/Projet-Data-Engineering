@@ -10,24 +10,22 @@ Responsibilities:
 
 import json
 import time
-import os
 import argparse
-from pathlib import Path
 import logging
 
-from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, lit
 from confluent_kafka import Producer
 
 from src.streaming.config.kafka_config import PRODUCER_CONFIG, OWID_TOPIC
-from src.config.settings import PROCESSED_PREFIX, GCS_BUCKET_NAME
+from src.config.settings import PROCESSED_PREFIX, GCS_BUCKET_NAME, LOG_FORMAT
+from src.utils.spark import get_spark
 
 # ============================
 # Logging setup
 # ============================
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(message)s",
+    format=LOG_FORMAT,
 )
 
 logger = logging.getLogger(__name__)
@@ -84,30 +82,7 @@ def run_producer(target_date: str):
     producer = Producer(PRODUCER_CONFIG)
     logger.info("Démarrage du producer OWID")
 
-    # credentials to access gcs
-    GCP_CREDENTIALS_JSON = os.environ.get(
-        "GOOGLE_APPLICATION_CREDENTIALS",
-        str(Path.home() / ".config/gcloud/application_default_credentials.json")
-    )
-
-    spark = (
-        SparkSession.builder
-        .appName("OWID_Producer")
-        .master("local[*]")
-        .config("spark.jars.packages", "com.google.cloud.bigdataoss:gcs-connector:hadoop3-2.2.2")
-        
-        # Credentials
-        .config("spark.hadoop.google.cloud.auth.service.account.enable", "true")
-        .config("spark.hadoop.google.cloud.auth.service.account.json.keyfile", GCP_CREDENTIALS_JSON)
-
-        # GCS config
-        .config("spark.hadoop.fs.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem")
-        .config("spark.hadoop.fs.AbstractFileSystem.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFS")
-        .config("spark.hadoop.mapreduce.fileoutputcommitter.algorithm.version", "2")
-        .config("spark.hadoop.mapreduce.outputcommitter.factory.scheme.gs", "org.apache.hadoop.fs.gs.GCSOutputCommitterFactory")
-
-        .getOrCreate()
-    )
+    spark = get_spark("OWID_COVID_Producer")
 
     gcs_path = (
         f"gs://{GCS_BUCKET_NAME}/{PROCESSED_PREFIX}"
@@ -126,13 +101,14 @@ def run_producer(target_date: str):
 
     # Publish events row by row to Kafka
     for row in df_day.toLocalIterator():
-        event = build_event(row)
+        event = build_event(row)       
         producer.produce(
             topic=OWID_TOPIC,
-            key=row.iso_code,
+            key=row.iso_code.encode('utf-8'),
             value=json.dumps(event).encode("utf-8"), # serialize the event to JSON and encode it as UTF-8 bytes before sending
             callback=delivery_report,
         )
+
         producer.poll(0) # trigger delivery callbacks
         time.sleep(0.1)  # simulate real-time streaming delay
 

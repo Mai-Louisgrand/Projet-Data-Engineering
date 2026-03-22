@@ -7,13 +7,10 @@ This script performs the following tasks:
 - Writes processed data as Parquet files per country in GCS, ready for downstream analytical processing or ingestion.
 '''
 
-import os
-from pathlib import Path
-from pyspark.sql import SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql.types import DoubleType
 from src.config.settings import RAW_PREFIX, INGESTION_DATE, GCS_BUCKET_NAME, PROCESSED_PATH, LOG_FORMAT, LOG_PATH
-
+from src.utils.spark import get_spark
 
 # ============================
 # Helper functions
@@ -54,30 +51,7 @@ def run_transformation():
     '''
     output_path = PROCESSED_PATH
 
-    # credentials to access gcs
-    GCP_CREDENTIALS_JSON = os.environ.get(
-        "GOOGLE_APPLICATION_CREDENTIALS",
-        str(Path.home() / ".config/gcloud/application_default_credentials.json")
-    )
-
-    spark = (
-        SparkSession.builder
-        .appName("OWID_COVID_Transformation")
-        .master("local[*]")
-        .config("spark.jars.packages", "com.google.cloud.bigdataoss:gcs-connector:hadoop3-2.2.2")
-        
-        # Credentials
-        .config("spark.hadoop.google.cloud.auth.service.account.enable", "true")
-        .config("spark.hadoop.google.cloud.auth.service.account.json.keyfile", GCP_CREDENTIALS_JSON)
-
-        # GCS config
-        .config("spark.hadoop.fs.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem")
-        .config("spark.hadoop.fs.AbstractFileSystem.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFS")
-        .config("spark.hadoop.mapreduce.fileoutputcommitter.algorithm.version", "2")
-        .config("spark.hadoop.mapreduce.outputcommitter.factory.scheme.gs", "org.apache.hadoop.fs.gs.GCSOutputCommitterFactory")
-
-        .getOrCreate()
-    )
+    spark = get_spark("OWID_COVID_Transformation")
 
     # ============================
     # Read RAW data from GCS

@@ -10,18 +10,17 @@ Performs basic profiling of the raw dataset:
 '''
 
 import logging
-import os
-from pathlib import Path
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, count, when, lit, round as spark_round
 from src.config.settings import PROJECT_ROOT, PROFILING_OUTPUT_PATH, INGESTION_DATE, GCS_BUCKET_NAME, RAW_PREFIX, LOG_FORMAT, LOG_PATH
+from src.utils.spark import get_spark
 
 # ============================
 # Logging setup
 # ============================
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s"
+    format=LOG_FORMAT
 )
 
 logger = logging.getLogger(__name__)
@@ -29,32 +28,6 @@ logger = logging.getLogger(__name__)
 # ============================
 # Profiling helper functions
 # ============================
-# credentials to access gcs
-GCP_CREDENTIALS_JSON = os.environ.get(
-    "GOOGLE_APPLICATION_CREDENTIALS",
-    str(Path.home() / ".config/gcloud/application_default_credentials.json")
-)
-
-def create_spark_session() -> SparkSession:
-    '''
-    Initialize a SparkSession for profiling that can read directly to GCS.
-    
-    :return: SparkSession object
-    '''
-    spark = (
-        SparkSession.builder
-        .appName("OWID_COVID_Profiling")
-        .master("local[*]") 
-        # GCS Connector Maven package
-        .config("spark.jars.packages", "com.google.cloud.bigdataoss:gcs-connector:hadoop3-2.2.2")
-        # Connection with service account 
-        .config("spark.hadoop.fs.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem")
-        .config("spark.hadoop.google.cloud.auth.service.account.enable", "true")
-        .config("spark.hadoop.google.cloud.auth.service.account.json.keyfile", GCP_CREDENTIALS_JSON)
-        .getOrCreate()
-    )
-    return spark
-
 def load_raw_data(spark: SparkSession):
     '''
     Load the latest raw OWID CSV from the ingestion folder.
@@ -215,7 +188,7 @@ def main():
     '''
     logger.info("Démarrage du profiling OWID COVID")
 
-    spark = create_spark_session()
+    spark = get_spark("OWID_COVID_Profiling")
     df = load_raw_data(spark)
     
     PROFILING_OUTPUT_PATH.mkdir(parents=True, exist_ok=True)
