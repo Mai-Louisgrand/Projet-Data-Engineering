@@ -83,7 +83,6 @@ with DAG(
             --master spark://spark-master:7077 \
             --conf "spark.driver.extraJavaOptions=-Duser.home=/tmp" \
             --conf "spark.executor.extraJavaOptions=-Duser.home=/tmp" \
-            --packages com.google.cloud.bigdataoss:gcs-connector:hadoop3-2.2.2 \
             /opt/app/src/transformation/spark_transform_owid.py
         '
         """,
