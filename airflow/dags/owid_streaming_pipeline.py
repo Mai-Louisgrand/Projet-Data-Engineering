@@ -11,6 +11,10 @@ from airflow.operators.bash import BashOperator
 from kafka.admin import KafkaAdminClient, NewTopic
 
 from src.streaming.consumer.owid_stream_processing import run_consumer
+from src.storage.bigquery.deduplicate_staging_bq import run_deduplication
+from src.storage.bigquery.merge_staging_bq import run_merge
+from src.storage.bigquery.load_date_staging_bq import populate_load_date
+from src.storage.bigquery.load_dim_fact_bq import run_dml
 
 import logging
 import os
@@ -95,7 +99,6 @@ with DAG(
             --master spark://spark-master:7077 \
             --conf "spark.driver.extraJavaOptions=-Duser.home=/tmp" \
             --conf "spark.executor.extraJavaOptions=-Duser.home=/tmp" \
-            --packages com.google.cloud.bigdataoss:gcs-connector:hadoop3-2.2.2 \
             /opt/app/src/streaming/producer/owid_event_producer.py \
             --target_date 2022-05-01
     '
@@ -105,11 +108,49 @@ with DAG(
 )
 
     # -------- Consumer --------
-    run_consumer_task = PythonOperator(
+    run_consumer_task = BashOperator(
         task_id="run_streaming_consumer",
-        python_callable=run_consumer,
+        bash_command="""
+        docker exec spark-master bash -c '
+            PYTHONPATH=/opt/app /opt/spark/bin/spark-submit \
+                --master spark://spark-master:7077 \
+                --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.1 \
+                --conf "spark.driver.extraJavaOptions=-Duser.home=/tmp" \
+                --conf "spark.executor.extraJavaOptions=-Duser.home=/tmp" \
+                /opt/app/src/streaming/consumer/owid_stream_processing.py
+        '
+        """,
         execution_timeout=timedelta(minutes=10),
         doc_md="Tâche de démarrage du consumer"
+    )
+
+    # -------- Storage --------
+    load_date_task = PythonOperator(
+        task_id='load_date_staging_tmp',
+        python_callable=populate_load_date,
+        execution_timeout=timedelta(minutes=6),
+        doc_md="Ajout de la date du jour en load date sur les données de staging_tmp sur Bigquery"
+    )
+
+    deduplicate_staging_tmp_task = PythonOperator(
+        task_id="deduplicate_staging_tmp",
+        python_callable=run_deduplication,
+        execution_timeout=timedelta(minutes=6),
+        doc_md="Déduplications des données de staging_tmp sur BigQuery"
+    )
+
+    merge_staging_task = PythonOperator(
+        task_id="merge_staging",
+        python_callable=run_merge,
+        execution_timeout=timedelta(minutes=10),
+        doc_md="Upsert des données de staging_tmp vers staging sur BigQuery"
+    )
+
+    populate_task = PythonOperator(
+        task_id="populate_dim_fact",
+        python_callable=run_dml,
+        execution_timeout=timedelta(minutes=10),
+        doc_md="Population des tables dim et fact à partir de la table de staging sur BigQuery"
     )
 
     # -------- End --------
@@ -119,4 +160,4 @@ with DAG(
     )
 
     # Task dependencies
-    start_task >> ensure_topic_task >> start_producer_task >> run_consumer_task >> end_task
+    start_task >> ensure_topic_task >> start_producer_task >> run_consumer_task >> load_date_task >> deduplicate_staging_tmp_task >> merge_staging_task >> populate_task >> end_task
