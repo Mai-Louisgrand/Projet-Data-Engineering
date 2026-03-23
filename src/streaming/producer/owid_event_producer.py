@@ -11,24 +11,17 @@ Responsibilities:
 import json
 import time
 import argparse
-import logging
 
 from pyspark.sql.functions import col, lit
 from confluent_kafka import Producer
 
 from src.streaming.config.kafka_config import PRODUCER_CONFIG, OWID_TOPIC
-from src.config.settings import PROCESSED_PREFIX, GCS_BUCKET_NAME, LOG_FORMAT
+from src.config.settings import PROCESSED_PREFIX, GCS_BUCKET_NAME
 from src.utils.spark import get_spark
+from src.utils.logging import setup_logging
 
-# ============================
-# Logging setup
-# ============================
-logging.basicConfig(
-    level=logging.INFO,
-    format=LOG_FORMAT,
-)
-
-logger = logging.getLogger(__name__)
+# Logging configuration
+logger = setup_logging()
 
 # ============================
 # Business transformations

@@ -3,15 +3,12 @@ Populate the load_date column in BigQuery temporary staging table
 
 - Sets load_date = CURRENT_DATE() for all rows
 '''
-import logging
 from google.cloud import bigquery
-from src.config.settings import GCP_PROJECT, BQ_DATASET_STAGING, LOG_FORMAT
+from src.config.settings import GCP_PROJECT, BQ_DATASET_STAGING
+from src.utils.logging import setup_logging
 
-# ============================
 # Logging configuration
-# ============================
-logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
-logger = logging.getLogger(__name__)
+logger = setup_logging()
 
 # ============================
 # Main function

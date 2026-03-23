@@ -5,16 +5,13 @@ Features:
  - Verify BigQuery connectivity
  - Execute all DML SQL files (excluding dim_date)
 '''
-import logging
 from pathlib import Path
 from google.cloud import bigquery
-from src.config.settings import GCP_PROJECT, LOG_FORMAT
+from src.config.settings import GCP_PROJECT
+from src.utils.logging import setup_logging
 
-# ============================
 # Logging configuration
-# ============================
-logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
-logger = logging.getLogger(__name__)
+logger = setup_logging()
 
 # ============================
 # Main function

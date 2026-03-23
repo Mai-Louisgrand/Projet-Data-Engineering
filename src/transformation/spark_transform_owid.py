@@ -9,8 +9,12 @@ This script performs the following tasks:
 
 from pyspark.sql import functions as F
 from pyspark.sql.types import DoubleType
-from src.config.settings import RAW_PREFIX, INGESTION_DATE, GCS_BUCKET_NAME, PROCESSED_PATH, LOG_FORMAT, LOG_PATH
+from src.config.settings import RAW_PREFIX, INGESTION_DATE, GCS_BUCKET_NAME, PROCESSED_PATH
 from src.utils.spark import get_spark
+from src.utils.logging import setup_logging
+
+# Logging configuration
+logger = setup_logging()
 
 # ============================
 # Helper functions
@@ -49,6 +53,8 @@ def run_transformation():
 
     :param raw_path: Path to the raw CSV files
     '''
+    logger.info("Démarrage de la transformation OWID")
+
     output_path = PROCESSED_PATH
 
     spark = get_spark("OWID_COVID_Transformation")
@@ -60,13 +66,18 @@ def run_transformation():
         f"gs://{GCS_BUCKET_NAME}/{RAW_PREFIX}/"
         f"ingestion_date={INGESTION_DATE}/owid_covid_data.csv"
     )
+    logger.info(f"Lecture des données depuis GCS : {gcs_path}")
 
-    df = (
-        spark.read
-        .option("header", True)
-        .option("inferSchema", True)
-        .csv(gcs_path)
-    )
+    try:
+        df = (
+            spark.read
+            .option("header", True)
+            .option("inferSchema", True)
+            .csv(gcs_path)
+        )
+    except Exception as e:
+        logger.exception(f"Erreur lecture GCS : {gcs_path}")
+        raise
 
     # ============================
     # Transformations
@@ -78,7 +89,7 @@ def run_transformation():
     # Numeric columns requiring consistency checks
     NUMERIC_COLUMNS = ["total_vaccinations", "people_vaccinated", "people_fully_vaccinated", "total_boosters", "new_vaccinations", "new_vaccinations_smoothed", "population"]
 
-
+    logger.info("Début des transformations")
     # 1. Filter critical rows
     df = (
         df 
@@ -86,12 +97,15 @@ def run_transformation():
         .filter(F.col("location").isNotNull())
         .filter(F.col("date").isNotNull())
     )
+    logger.info("Filtrage des lignes critiques effectué")
 
     # 2. Exclude OWID aggregate codes
     df = df.filter(~F.col("iso_code").startswith("OWID_"))
+    logger.info("Filtrage des agrégats OWID effectué")
 
     # 3. Reduce schema to relevant columns
     df = df.select(*(CRITICAL_COLUMNS + BUSINESS_COLUMNS))
+    logger.info("Sélection des colonnes métiers")
 
     # 4. Clean numeric columns
     # Assumptions:
@@ -102,6 +116,7 @@ def run_transformation():
             col_name,
             F.when(F.col(col_name) < 0, None).otherwise(F.col(col_name))
         )
+    logger.info("Nettoyage des colonnes numériques (valeurs négatives)")
 
     # 5. Compute normalized indicators per 100 inhabitants
     df = (
@@ -123,17 +138,26 @@ def run_transformation():
             per_hundred("total_boosters")
         )
     )
+    logger.info("Calcul des indicateurs normalisés")
 
     # ============================
     # Write processed data
     # ============================
-    (
-        df
-        .repartition(4) # Repartition for Spark optimization
-        .write
-        .mode("overwrite")
-        .parquet(output_path)
-    )
+    logger.info(f"Écriture des données transformées : {output_path}")
+
+    try:
+        (
+            df
+            .repartition(4) # Repartition for Spark optimization
+            .write
+            .mode("overwrite")
+            .parquet(output_path)
+        )
+    except Exception as e:
+        logger.exception(f"Erreur écriture données : {output_path}")
+        raise
+
+    logger.info(f"Écriture des données transformées : {output_path}")
 
 # ============================
 # Standalone execution

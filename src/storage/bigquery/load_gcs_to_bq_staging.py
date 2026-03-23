@@ -5,19 +5,12 @@ Load OWID processed data from GCS to BigQuery temporary staging table.
 - Target: BigQuery temporary staging table
 - Mode: Full refresh (WRITE_TRUNCATE)
 '''
-
-import logging
 from google.cloud import bigquery
-from src.config.settings import GCP_PROJECT, GCS_BUCKET_NAME, PROCESSED_PREFIX, BQ_DATASET_STAGING, LOG_FORMAT
+from src.config.settings import GCP_PROJECT, GCS_BUCKET_NAME, PROCESSED_PREFIX, BQ_DATASET_STAGING
+from src.utils.logging import setup_logging
 
-# ============================
 # Logging configuration
-# ============================
-logging.basicConfig(
-    level=logging.INFO,
-    format=LOG_FORMAT
-)
-logger = logging.getLogger(__name__)
+logger = setup_logging()
 
 # ============================
 # Main function

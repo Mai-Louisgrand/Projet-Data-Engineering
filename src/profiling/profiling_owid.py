@@ -9,21 +9,14 @@ Performs basic profiling of the raw dataset:
 - Saves schema, sample, and profiling results to .txt and CSV files
 '''
 
-import logging
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, count, when, lit, round as spark_round
-from src.config.settings import PROJECT_ROOT, PROFILING_OUTPUT_PATH, INGESTION_DATE, GCS_BUCKET_NAME, RAW_PREFIX, LOG_FORMAT, LOG_PATH
+from src.config.settings import PROFILING_OUTPUT_PATH, INGESTION_DATE, GCS_BUCKET_NAME, RAW_PREFIX
 from src.utils.spark import get_spark
+from src.utils.logging import setup_logging
 
-# ============================
-# Logging setup
-# ============================
-logging.basicConfig(
-    level=logging.INFO,
-    format=LOG_FORMAT
-)
-
-logger = logging.getLogger(__name__)
+# Logging configuration
+logger = setup_logging()
 
 # ============================
 # Profiling helper functions

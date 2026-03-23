@@ -4,16 +4,12 @@ Merge staging_tmp into final staging table in BigQuery
 - Performs upsert based on unique keys (iso_code, date)
 - Ensures final staging table is consistent and ready for downstream
 '''
-
-import logging
 from google.cloud import bigquery
-from src.config.settings import GCP_PROJECT, BQ_DATASET_STAGING, LOG_FORMAT
+from src.config.settings import GCP_PROJECT, BQ_DATASET_STAGING
+from src.utils.logging import setup_logging
 
-# ============================
 # Logging configuration
-# ============================
-logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
-logger = logging.getLogger(__name__)
+logger = setup_logging()
 
 # ============================
 # Main function

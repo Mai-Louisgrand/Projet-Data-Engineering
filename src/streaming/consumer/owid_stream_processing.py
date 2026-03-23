@@ -8,8 +8,6 @@ Responsibilities:
  - Deduplicate records at micro-batch level
  - Idempotent writes to BigQuery staging_tmp
 '''
-
-import logging
 from pathlib import Path
 from pyspark.sql import functions as F
 from pyspark.sql.types import StructType, StringType, DoubleType
@@ -18,13 +16,11 @@ from google.cloud import bigquery
 
 from src.utils.spark import get_spark
 from src.streaming.config.kafka_config import OWID_TOPIC, KAFKA_BOOTSTRAP_SERVERS
-from src.config.settings import GCP_PROJECT, BQ_DATASET_STAGING, GCS_BUCKET_NAME, LOG_FORMAT
+from src.config.settings import GCP_PROJECT, BQ_DATASET_STAGING, GCS_BUCKET_NAME
+from src.utils.logging import setup_logging
 
-# ============================
-# Logging Configuration
-# ============================
-logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
-logger = logging.getLogger(__name__)
+# Logging configuration
+logger = setup_logging()
 
 # ============================
 # BigQuery staging table

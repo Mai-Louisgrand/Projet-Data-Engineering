@@ -4,4 +4,4 @@ data/
 airflow/logs/
 airflow/dags/__pycache__/
 .vscode/
-logs/
+docker/jars/

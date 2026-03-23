@@ -5,19 +5,13 @@ Initialize BigQuery datasets and tables for the OWID COVID-19 pipeline.
 - Creates tables (via DDL SQL files)
 - Populate static dimensions (dim_date)
 '''
-import logging
 from pathlib import Path
 from google.cloud import bigquery
-from src.config.settings import GCP_PROJECT, BQ_REGION, BQ_DATASET_STAGING, BQ_DATASET_DIM, BQ_DATASET_FACT, LOG_FORMAT
+from src.config.settings import GCP_PROJECT, BQ_REGION, BQ_DATASET_STAGING, BQ_DATASET_DIM, BQ_DATASET_FACT
+from src.utils.logging import setup_logging
 
-# ============================
 # Logging configuration
-# ============================
-logging.basicConfig(
-    level=logging.INFO,
-    format=LOG_FORMAT
-)
-logger = logging.getLogger(__name__)
+logger = setup_logging()
 
 # ============================
 # Main function

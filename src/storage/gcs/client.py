@@ -8,11 +8,8 @@ It handles:
 - bucket connection
 - file upload operations
 '''
-
 from google.cloud import storage
-from pathlib import Path
 import logging
-
 
 class GCSClient:
     def __init__(self, bucket_name: str):

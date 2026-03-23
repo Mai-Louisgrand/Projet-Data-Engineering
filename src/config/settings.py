@@ -33,8 +33,8 @@ BQ_DATASET_DIM = "dim"
 BQ_DATASET_FACT = "fact"
 
 # Logging configuration
-LOG_PATH = PROJECT_ROOT / "logs"
 LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
+LOG_LEVEL = "INFO"
 
 # Execution
 INGESTION_DATE = date.today().isoformat()
