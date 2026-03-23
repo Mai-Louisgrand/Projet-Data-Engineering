@@ -1,7 +1,6 @@
 '''
 Kafka configuration for the OWID streaming pipeline
 '''
-
 import os
 from typing import Dict, Union
 
@@ -12,7 +11,6 @@ if RUNNING_IN_DOCKER:
     KAFKA_BOOTSTRAP_SERVERS = "kafka:29092"
 else:
     KAFKA_BOOTSTRAP_SERVERS = "localhost:9092"
-print(f"RUNNING_IN_DOCKER={RUNNING_IN_DOCKER}, KAFKA_BOOTSTRAP_SERVERS={KAFKA_BOOTSTRAP_SERVERS}")
 
 # Kafka topic for OWID vaccination events
 OWID_TOPIC = "owid_vaccination_events"

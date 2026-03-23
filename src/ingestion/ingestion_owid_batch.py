@@ -15,25 +15,11 @@ from google.cloud.exceptions import GoogleCloudError
 from io import BytesIO
 
 from src.storage.gcs.client import GCSClient
-from src.config.settings import OWID_COVID_CSV_URL, INGESTION_DATE, GCS_BUCKET_NAME, RAW_PREFIX, LOG_FORMAT, LOG_PATH
+from src.config.settings import OWID_COVID_CSV_URL, INGESTION_DATE, GCS_BUCKET_NAME, RAW_PREFIX
+from src.utils.logging import setup_logging
 
-# ============================
 # Logging configuration
-# ============================
-LOG_PATH.mkdir(parents=True, exist_ok=True)
-log_file = LOG_PATH / f"ingestion_{INGESTION_DATE}.log"
-
-logging.basicConfig(
-    filename=log_file,
-    level=logging.INFO,
-    format=LOG_FORMAT
-)
-
-console = logging.StreamHandler()
-console.setLevel(logging.INFO)
-formatter = logging.Formatter(LOG_FORMAT)
-console.setFormatter(formatter)
-logging.getLogger('').addHandler(console)
+logger = setup_logging()
 
 # ============================
 # Ingestion helper functions

@@ -15,6 +15,9 @@ OWID_COVID_CSV_URL = "https://raw.githubusercontent.com/owid/covid-19-data/maste
 # Project root directory
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
+# GCP
+GCP_PROJECT = "owid-covid-19-data-engineering"
+
 # GCS configuration
 GCS_BUCKET_NAME = "owid-datalake-dev-eu-2026"
 
@@ -23,9 +26,15 @@ RAW_PATH = f"gs://{GCS_BUCKET_NAME}/raw/owid_covid"
 PROCESSED_PREFIX = "processed/owid_covid"
 PROCESSED_PATH = f"gs://{GCS_BUCKET_NAME}/processed/owid_covid"
 
+# BigQuery configuration
+BQ_REGION = "europe-west1"
+BQ_DATASET_STAGING = "staging"
+BQ_DATASET_DIM = "dim"
+BQ_DATASET_FACT = "fact"
+
 # Logging configuration
-LOG_PATH = PROJECT_ROOT / "logs"
 LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
+LOG_LEVEL = "INFO"
 
 # Execution
 INGESTION_DATE = date.today().isoformat()

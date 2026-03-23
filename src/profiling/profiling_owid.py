@@ -9,52 +9,18 @@ Performs basic profiling of the raw dataset:
 - Saves schema, sample, and profiling results to .txt and CSV files
 '''
 
-import logging
-import os
-from pathlib import Path
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import col, count, when, lit, round as spark_round
-from src.config.settings import PROJECT_ROOT, PROFILING_OUTPUT_PATH, INGESTION_DATE, GCS_BUCKET_NAME, RAW_PREFIX, LOG_FORMAT, LOG_PATH
+from src.config.settings import PROFILING_OUTPUT_PATH, INGESTION_DATE, GCS_BUCKET_NAME, RAW_PREFIX
+from src.utils.spark import get_spark
+from src.utils.logging import setup_logging
 
-# ============================
-# Logging setup
-# ============================
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s - %(levelname)s - %(message)s"
-)
-
-logger = logging.getLogger(__name__)
+# Logging configuration
+logger = setup_logging()
 
 # ============================
 # Profiling helper functions
 # ============================
-# credentials to access gcs
-GCP_CREDENTIALS_JSON = os.environ.get(
-    "GOOGLE_APPLICATION_CREDENTIALS",
-    str(Path.home() / ".config/gcloud/application_default_credentials.json")
-)
-
-def create_spark_session() -> SparkSession:
-    '''
-    Initialize a SparkSession for profiling that can read directly to GCS.
-    
-    :return: SparkSession object
-    '''
-    spark = (
-        SparkSession.builder
-        .appName("OWID_COVID_Profiling")
-        .master("local[*]") 
-        # GCS Connector Maven package
-        .config("spark.jars.packages", "com.google.cloud.bigdataoss:gcs-connector:hadoop3-2.2.2")
-        # Connection with service account 
-        .config("spark.hadoop.fs.gs.impl", "com.google.cloud.hadoop.fs.gcs.GoogleHadoopFileSystem")
-        .config("spark.hadoop.google.cloud.auth.service.account.enable", "true")
-        .config("spark.hadoop.google.cloud.auth.service.account.json.keyfile", GCP_CREDENTIALS_JSON)
-        .getOrCreate()
-    )
-    return spark
-
 def load_raw_data(spark: SparkSession):
     '''
     Load the latest raw OWID CSV from the ingestion folder.
@@ -148,11 +114,14 @@ def save_schema(df):
     :param df: Spark DataFrame
     '''
     schema_path = PROFILING_OUTPUT_PATH / "schema.txt"
-
     logger.info(f"Sauvegarde du schéma dans {schema_path}")
 
-    with open(schema_path, "w") as f:
-        f.write(df._jdf.schema().treeString())
+    try : 
+        with open(schema_path, "w") as f:
+            f.write(df._jdf.schema().treeString())
+    except Exception as e:
+        logger.error(f"Erreur lors de la sauvegarde du schéma: {e}")
+        raise
 
 def save_sample_data(df, n=100):
     '''
@@ -162,17 +131,20 @@ def save_sample_data(df, n=100):
     :param n: Number of rows to save
     '''
     sample_path = PROFILING_OUTPUT_PATH / "sample_data"
-
     logger.info(f"Sauvegarde d'un échantillon de {n} lignes dans {sample_path}")
 
-    (
-        df.limit(n)
-        .coalesce(1)
-        .write
-        .mode("overwrite")
-        .option("header", True)
-        .csv(str(sample_path))
-    )
+    try :
+        (
+            df.limit(n)
+            .coalesce(1)
+            .write
+            .mode("overwrite")
+            .option("header", True)
+            .csv(str(sample_path))
+        )
+    except Exception as e:
+        logger.error(f"Erreur lors de la sauvegarde de l'échantillon: {e}")
+        raise
 
 def save_profiling_results(null_stats, numeric_stats):
     '''
@@ -186,25 +158,29 @@ def save_profiling_results(null_stats, numeric_stats):
     null_stats_path = PROFILING_OUTPUT_PATH / "null_statistics"
     numeric_stats_path = PROFILING_OUTPUT_PATH / "numeric_statistics"
 
-    logger.info(f"Sauvegarde des statistiques de nulls dans {null_stats_path}")
-    (
-        null_stats
-        .coalesce(1)  # create only one CSV
-        .write
-        .mode("overwrite")
-        .option("header", True)
-        .csv(str(null_stats_path))
-    )
+    try :
+        logger.info(f"Sauvegarde des statistiques de nulls dans {null_stats_path}")
+        (
+            null_stats
+            .coalesce(1)  # create only one CSV
+            .write
+            .mode("overwrite")
+            .option("header", True)
+            .csv(str(null_stats_path))
+        )
 
-    logger.info(f"Sauvegarde des statistiques numériques : {numeric_stats_path}")
-    (
-        numeric_stats
-        .coalesce(1)
-        .write
-        .mode("overwrite")
-        .option("header", True)
-        .csv(str(numeric_stats_path))
-    )
+        logger.info(f"Sauvegarde des statistiques numériques : {numeric_stats_path}")
+        (
+            numeric_stats
+            .coalesce(1)
+            .write
+            .mode("overwrite")
+            .option("header", True)
+            .csv(str(numeric_stats_path))
+        )
+    except Exception as e:
+        logger.error(f"Erreur lors de la sauvegarde des statistiques: {e}")
+        raise
 
 # ============================
 # Main
@@ -215,7 +191,7 @@ def main():
     '''
     logger.info("Démarrage du profiling OWID COVID")
 
-    spark = create_spark_session()
+    spark = get_spark("OWID_COVID_Profiling")
     df = load_raw_data(spark)
     
     PROFILING_OUTPUT_PATH.mkdir(parents=True, exist_ok=True)

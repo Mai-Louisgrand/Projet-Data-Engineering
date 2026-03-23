@@ -1,42 +1,31 @@
 '''
-Spark Structured Streaming job for OWID COVID-19 vaccination events
+Spark Structured Streaming consumer (Kafka -> BigQuery staging_tmp)
 
 Responsibilities:
  - Consume vaccination events from Kafka
  - Deserialize JSON messages using an explicit schema
  - Transform streaming data to match the shared batch/streaming staging model
  - Deduplicate records at micro-batch level
- - Idempotent writes into PostgreSQL staging via UPSERT logic
+ - Idempotent writes to BigQuery staging_tmp
 '''
-
-import logging
 from pathlib import Path
 from pyspark.sql import functions as F
 from pyspark.sql.types import StructType, StringType, DoubleType
 from pyspark.sql import DataFrame
+from google.cloud import bigquery
 
-from src.streaming.config.kafka_config import OWID_TOPIC, KAFKA_BOOTSTRAP_SERVERS
-from src.streaming.config.spark_config import get_spark_session
-from src.streaming.config.postgres_config import STAGING_TABLE, POSTGRES_CONFIG
-from src.streaming.postgres_writer import get_postgres_connection, write_dataframe_to_postgres, upsert_from_temp_table
+from src.utils.spark import get_spark
+from src.config.kafka_settings import OWID_TOPIC, KAFKA_BOOTSTRAP_SERVERS
+from src.config.settings import GCP_PROJECT, BQ_DATASET_STAGING, GCS_BUCKET_NAME
+from src.utils.logging import setup_logging
+
+# Logging configuration
+logger = setup_logging()
 
 # ============================
-# Configuration
+# BigQuery staging table
 # ============================
-# Logging setup
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s | %(levelname)s | %(message)s",
-)
-logger = logging.getLogger(__name__)
-
-# PostgreSQL JDBC configuration
-POSTGRES_JDBC_URL = f"jdbc:postgresql://{POSTGRES_CONFIG['host']}:{POSTGRES_CONFIG['port']}/{POSTGRES_CONFIG['database']}"
-POSTGRES_JDBC_PROPERTIES = {
-    "user": POSTGRES_CONFIG["user"],
-    "password": POSTGRES_CONFIG["password"],
-    "driver": "org.postgresql.Driver"
-}
+STAGING_TABLE_BQ = f"{GCP_PROJECT}.{BQ_DATASET_STAGING}.stg_owid_covid_tmp"
 
 # ============================
 # Explicit schema for Kafka events
@@ -57,8 +46,7 @@ event_schema = (
 # ============================
 def transform_batch(batch_df: DataFrame) -> DataFrame:
     '''
-    Transform a Spark micro-batch to match the shared PostgreSQL staging table
-    used by both batch and streaming pipelines.
+    Transform a Spark micro-batch to match BigQuery staging_tmp schema
 
     This transformation:
     - Renames and casts streaming fields to staging-compatible columns
@@ -95,16 +83,27 @@ def transform_batch(batch_df: DataFrame) -> DataFrame:
         .dropDuplicates(["date", "iso_code"])
     )
 
-def write_batch_to_postgres(batch_df: DataFrame, epoch_id: int) -> None:
+def truncate_staging_table():
     '''
-    Write a Spark Structured Streaming micro-batch into the PostgreSQL staging table.
+    Truncate temporary staging table before streaming load.
+    '''
+    try:
+        client = bigquery.Client(project=GCP_PROJECT)
+        table_id = f"{GCP_PROJECT}.{BQ_DATASET_STAGING}.stg_owid_covid_tmp"
+        
+        query = f"TRUNCATE TABLE `{table_id}`"
+        
+        logger.info(f"Nettoyage de la table {table_id}...")
+        client.query(query).result()
+        logger.info("Table de staging vidée avec succès.")
+        
+    except Exception as e:
+        logger.error(f"Erreur lors du truncate de la table : {e}")
+        raise
 
-    Processing steps:
-    - Skip empty micro-batches
-    - Transform data to match PostgreSQL staging schema
-    - Write data into a temporary table via Spark JDBC
-    - UPSERT records into the shared batch/streaming staging table
-    - Ensure idempotent writes using conflict resolution
+def write_batch_to_bq(batch_df: DataFrame, epoch_id: int) -> None:
+    '''
+    Write a Spark micro-batch into BigQuery staging_tmp
 
     :param batch_df: Spark DataFrame for the current micro-batch
     :param epoch_id: Structured Streaming epoch identifier
@@ -114,97 +113,37 @@ def write_batch_to_postgres(batch_df: DataFrame, epoch_id: int) -> None:
         logger.info("Epoch %s : batch vide, aucun enregistrement à écrire", epoch_id)
         return
 
-    df_to_write = transform_batch(batch_df) # Transform data to match PostgreSQL schema
-    
-    temp_table = "staging.owid_covid_tmp" # Temporary table used to enable UPSERT logic
+    df_to_write = transform_batch(batch_df)
 
-    # Drop and recreate temporary table to ensure a clean micro-batch load
-    pg_conn_setup = get_postgres_connection(
-        POSTGRES_CONFIG['host'],
-        POSTGRES_CONFIG['port'],
-        POSTGRES_CONFIG['database'],
-        POSTGRES_CONFIG['user'],
-        POSTGRES_CONFIG['password']
-    )
-    try:
-        with pg_conn_setup.cursor() as cur:
-            cur.execute(f"DROP TABLE IF EXISTS {temp_table};")
-            cur.execute(f"""
-                CREATE TABLE {temp_table} (
-                    iso_code TEXT,
-                    continent TEXT,
-                    location TEXT,
-                    date DATE,
-                    total_vaccinations BIGINT,
-                    people_vaccinated BIGINT,
-                    people_fully_vaccinated BIGINT,
-                    total_boosters BIGINT,
-                    new_vaccinations BIGINT,
-                    new_vaccinations_smoothed DOUBLE PRECISION,
-                    population BIGINT,
-                    total_vaccinations_per_hundred DOUBLE PRECISION,
-                    people_vaccinated_per_hundred DOUBLE PRECISION,
-                    people_fully_vaccinated_per_hundred DOUBLE PRECISION,
-                    total_boosters_per_hundred DOUBLE PRECISION,
-                    load_date DATE
-                );
-            """)
-        pg_conn_setup.commit()
-        logger.info("Temp table %s recréée pour epoch %s", temp_table, epoch_id)
-    finally:
-        pg_conn_setup.close()
-    
-    # Write transformed micro-batch into temporary table via Spark JDBC
-    write_dataframe_to_postgres(df_to_write, temp_table, POSTGRES_JDBC_URL, POSTGRES_JDBC_PROPERTIES, mode="append")
-    
-    pg_conn = None
-    try:
-        pg_conn = get_postgres_connection(POSTGRES_CONFIG['host'],POSTGRES_CONFIG['port'],POSTGRES_CONFIG['database'],POSTGRES_CONFIG['user'],POSTGRES_CONFIG['password'])
-
-        # UPSERT micro-batch data into the shared batch/streaming staging table
-        logger.info("Epoch %s : tentative d'écriture du batch...", epoch_id)
-        logger.info(f"Écriture dans {STAGING_TABLE}")
-        upsert_from_temp_table(
-            temp_table=temp_table,
-            target_table=STAGING_TABLE,
-            conflict_cols=["date", "iso_code"],
-            update_cols=["total_vaccinations", "people_vaccinated", "people_fully_vaccinated", "load_date"],
-            pg_conn=pg_conn
-        )
-        logger.info("Epoch %s : batch écrit avec succès", epoch_id)
-
-    except Exception as e:
-        logger.exception("Epoch %s : erreur lors de l'écriture du batch", epoch_id)
-        raise e
-
-    finally:
-        if pg_conn:
-            pg_conn.close()
-
+    try :
+        df_to_write.write \
+            .format("bigquery") \
+            .option("table", STAGING_TABLE_BQ) \
+            .option("temporaryGcsBucket", GCS_BUCKET_NAME) \
+            .option("parentProject", GCP_PROJECT) \
+            .mode("append") \
+            .save()
+        logger.info("Epoch %s : batch écrit dans BigQuery avec succès", epoch_id)
+    except Exception:
+        logger.exception("Erreur critique lors de l'écriture batch dans BigQuery")
+        raise
 
 # ============================
 # Consumer
 # ============================
 def run_consumer(checkpoint_dir: Path = Path("/opt/airflow/data/checkpoints/owid_stream")):
     '''
-    Run the Spark Structured Streaming consumer for OWID COVID-19 vaccination data.
-
-    This function:
-    - Initializes a Spark Structured Streaming session
-    - Reads vaccination events from Kafka
-    - Deserializes JSON messages using an explicit schema
-    - Applies event-time processing with watermarks
-    - Writes streaming micro-batches into PostgreSQL staging
+    Spark Structured Streaming consumer : Kafka → BigQuery staging_tmp
 
     :param checkpoint_dir: Directory used by Spark to persist streaming checkpoints
     '''
-    # Initialize Spark session
-    spark = get_spark_session("OWID_COVID_Streaming")
+    # Clean temporary staging table before loading new data
+    truncate_staging_table()
+
+    # Initialize Spark session    
+    spark = get_spark("OWID_COVID_Streaming")
     spark.sparkContext.setLogLevel("WARN")
 
-    # ============================
-    # Read events and transformation
-    # ============================
     # Read events from Kafka
     df_raw = (
         spark.readStream
@@ -215,7 +154,6 @@ def run_consumer(checkpoint_dir: Path = Path("/opt/airflow/data/checkpoints/owid
         .option("failOnDataLoss", "false")
         .load()
     )
-
     # Deserialize JSON messages into structured columns
     df_parsed = (
         df_raw
@@ -223,7 +161,6 @@ def run_consumer(checkpoint_dir: Path = Path("/opt/airflow/data/checkpoints/owid
         .select(F.from_json("json_str", event_schema).alias("data"))
         .select("data.*")
     )
-
     # Add event-time column and watermark for late data handling
     df_with_event_time = (
         df_parsed
@@ -236,7 +173,7 @@ def run_consumer(checkpoint_dir: Path = Path("/opt/airflow/data/checkpoints/owid
     # ============================
     query = (
         df_with_event_time.writeStream
-        .foreachBatch(write_batch_to_postgres)
+        .foreachBatch(write_batch_to_bq)
         .outputMode("append")
         .option("checkpointLocation", str(checkpoint_dir.resolve()))
         .start()
@@ -248,9 +185,6 @@ def run_consumer(checkpoint_dir: Path = Path("/opt/airflow/data/checkpoints/owid
     query.processAllAvailable()
     logger.info("Micro-batchs traités, consumer stop")
     query.stop()
-
-    # For long-running :
-    # query.awaitTermination()
 
 # ============================
 # Standalone execution

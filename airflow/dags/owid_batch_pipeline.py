@@ -10,13 +10,14 @@ from airflow.operators.python import PythonOperator
 from airflow.operators.bash import BashOperator
 from datetime import datetime, timedelta
 
-import subprocess
-import os
-import psycopg2
-import logging
-
 # Import existing business logic functions
 from src.ingestion.ingestion_owid_batch import upload_to_gcs
+from src.storage.bigquery.init_storage_bq import init_bigquery
+from src.storage.bigquery.load_gcs_to_bq_staging import run_load
+from src.storage.bigquery.deduplicate_staging_bq import run_deduplication
+from src.storage.bigquery.merge_staging_bq import run_merge
+from src.storage.bigquery.load_date_staging_bq import populate_load_date
+from src.storage.bigquery.load_dim_fact_bq import run_dml
 
 # =============================
 # Configuration
@@ -29,82 +30,6 @@ DB_PARAMS = {
     "PGDATABASE": "covid_dw",
     "PGPORT": "5432",
 }
-
-# =============================
-# Airflow task wrapper functions
-# =============================
-# -------- Storage --------
-def task_run_init_storage():
-    '''
-    Initialize the PostgreSQL database (schemas, tables, constraints).
-    '''
-    logger = logging.getLogger("airflow.task")
-
-    # Prepare environment variables for the shell script
-    env = os.environ.copy()
-    env.update(DB_PARAMS)
-
-    subprocess.run(["/opt/airflow/scripts/bash/init_storage.sh"], env=env, check=True)
-    
-    logger.info("Initialisation PostgreSQL terminée")
-
-def check_staging_data(**kwargs):
-    '''
-    Verify that the PostgreSQL staging table exists and contains data.
-    '''
-    logger = logging.getLogger("airflow.task")
-
-    try:
-        conn = psycopg2.connect(
-            host=DB_PARAMS["PGHOST"],
-            database=DB_PARAMS["PGDATABASE"],
-            user=DB_PARAMS["PGUSER"],
-            password=DB_PARAMS["PGPASSWORD"],
-            port=DB_PARAMS["PGPORT"]
-        )
-
-        cur = conn.cursor()
-
-        # Check table existence
-        cur.execute("""
-            SELECT COUNT(*)
-            FROM information_schema.tables
-            WHERE table_schema='staging'
-              AND table_name='stg_owid_covid';
-        """)
-        row = cur.fetchone()
-        table_count = row[0] if row else 0
-        if table_count == 0:
-            logger.error("Table staging.stg_owid_covid n'existe pas")
-            raise ValueError("La table de staging n'existe pas")
-
-        # Check row count
-        cur.execute("SELECT COUNT(*) FROM staging.stg_owid_covid;")
-        row = cur.fetchone()
-        count = row[0] if row else 0
-
-        if count == 0:
-            logger.error("Table de staging vide")
-            raise ValueError("La table de staging est vide")
-
-        logger.info(f"Vérification staging OK : {count} lignes présentes")
-
-    finally:
-        cur.close()
-        conn.close()
-
-def task_run_populate():
-    '''
-    Populate dimension and fact tables from the staging table.
-    '''
-    logger = logging.getLogger("airflow.task")
-
-    env = os.environ.copy()
-    env.update(DB_PARAMS)
-
-    subprocess.run("/opt/airflow/scripts/bash/run_dml.sh", env=env, check=True)
-
-    logger.info("Population tables dim/fact terminée")
 
 # ============================
 # Default DAG arguments
@@ -158,7 +83,6 @@ with DAG(
             --master spark://spark-master:7077 \
             --conf "spark.driver.extraJavaOptions=-Duser.home=/tmp" \
             --conf "spark.executor.extraJavaOptions=-Duser.home=/tmp" \
-            --packages com.google.cloud.bigdataoss:gcs-connector:hadoop3-2.2.2 \
             /opt/app/src/transformation/spark_transform_owid.py
         '
         """,
@@ -170,41 +94,45 @@ with DAG(
 
     # -------- Storage --------
     init_storage_task = PythonOperator(
-        task_id="init_storage",
-        python_callable=task_run_init_storage,
+        task_id='init_storage',
+        python_callable=init_bigquery,
         execution_timeout=timedelta(minutes=6),
-        doc_md="Initialisation de la BDD PostgreSQL"
+        doc_md="Initialisation de la DWH BigQuery"
     )
 
-    load_task = BashOperator(
-        task_id="load_staging",
-        bash_command="""
-        docker exec spark-master bash -c '
-        PYTHONPATH=/opt/app /opt/spark/bin/spark-submit \
-            --master spark://spark-master:7077 \
-            --conf "spark.driver.extraJavaOptions=-Duser.home=/tmp" \
-            --conf "spark.executor.extraJavaOptions=-Duser.home=/tmp" \
-            --packages com.google.cloud.bigdataoss:gcs-connector:hadoop3-2.2.2,org.postgresql:postgresql:42.6.0 \
-            /opt/app/src/storage/postgres/load_owid_postgres.py \
-            --pg_host postgres
-        '
-        """,
+    load_staging_tmp_task = PythonOperator(
+        task_id='load_gcs_to_bq_staging_tmp',
+        python_callable=run_load,
         execution_timeout=timedelta(minutes=6),
-        doc_md="Chargement des données transformées dans la table de staging"
+        doc_md="Chargement des données processed depuis GCS vers BigQuery staging_tmp"
     )
 
-    check_staging_task = PythonOperator(
-        task_id='check_staging_data',
-        python_callable=check_staging_data,
-        execution_timeout=timedelta(minutes=3),
-        doc_md="Vérifie que la table de staging PostgreSQL contient bien des données avant population"
+    load_date_task = PythonOperator(
+        task_id='load_date_staging_tmp',
+        python_callable=populate_load_date,
+        execution_timeout=timedelta(minutes=6),
+        doc_md="Ajout de la date du jour en load date sur les données de staging_tmp sur Bigquery"
+    )
+
+    deduplicate_staging_tmp_task = PythonOperator(
+        task_id="deduplicate_staging_tmp",
+        python_callable=run_deduplication,
+        execution_timeout=timedelta(minutes=6),
+        doc_md="Déduplications des données de staging_tmp sur BigQuery"
+    )
+
+    merge_staging_task = PythonOperator(
+        task_id="merge_staging",
+        python_callable=run_merge,
+        execution_timeout=timedelta(minutes=10),
+        doc_md="Upsert des données de staging_tmp vers staging sur BigQuery"
     )
 
     populate_task = PythonOperator(
         task_id="populate_dim_fact",
-        python_callable=task_run_populate,
+        python_callable=run_dml,
         execution_timeout=timedelta(minutes=10),
-        doc_md="Population des tables dim et fact à partir de la table de staging"
+        doc_md="Population des tables dim et fact à partir de la table de staging sur BigQuery"
     )
 
     # -------- End --------
@@ -216,4 +144,4 @@ with DAG(
 
 
     # Task dependencies
-    start_task >> ingestion_task >> transform_task >> init_storage_task >> load_task >> check_staging_task >> populate_task >> end_task
+    start_task >> ingestion_task >> transform_task >> init_storage_task >> load_staging_tmp_task >> load_date_task >> deduplicate_staging_tmp_task >> merge_staging_task >> populate_task >> end_task
