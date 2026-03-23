@@ -15,7 +15,7 @@ from pyspark.sql import DataFrame
 from google.cloud import bigquery
 
 from src.utils.spark import get_spark
-from src.streaming.config.kafka_config import OWID_TOPIC, KAFKA_BOOTSTRAP_SERVERS
+from src.config.kafka_settings import OWID_TOPIC, KAFKA_BOOTSTRAP_SERVERS
 from src.config.settings import GCP_PROJECT, BQ_DATASET_STAGING, GCS_BUCKET_NAME
 from src.utils.logging import setup_logging
 

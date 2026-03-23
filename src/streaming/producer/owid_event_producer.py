@@ -15,7 +15,7 @@ import argparse
 from pyspark.sql.functions import col, lit
 from confluent_kafka import Producer
 
-from src.streaming.config.kafka_config import PRODUCER_CONFIG, OWID_TOPIC
+from src.config.kafka_settings import PRODUCER_CONFIG, OWID_TOPIC
 from src.config.settings import PROCESSED_PREFIX, GCS_BUCKET_NAME
 from src.utils.spark import get_spark
 from src.utils.logging import setup_logging
