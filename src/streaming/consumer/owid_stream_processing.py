@@ -115,13 +115,18 @@ def write_batch_to_bq(batch_df: DataFrame, epoch_id: int) -> None:
 
     df_to_write = transform_batch(batch_df)
 
-    df_to_write.write \
-        .format("bigquery") \
-        .option("table", STAGING_TABLE_BQ) \
-        .option("temporaryGcsBucket", GCS_BUCKET_NAME) \
-        .option("parentProject", GCP_PROJECT) \
-        .mode("append") \
-        .save()
+    try :
+        df_to_write.write \
+            .format("bigquery") \
+            .option("table", STAGING_TABLE_BQ) \
+            .option("temporaryGcsBucket", GCS_BUCKET_NAME) \
+            .option("parentProject", GCP_PROJECT) \
+            .mode("append") \
+            .save()
+        logger.info("Epoch %s : batch écrit dans BigQuery avec succès", epoch_id)
+    except Exception:
+        logger.exception("Erreur critique lors de l'écriture batch dans BigQuery")
+        raise
 
 # ============================
 # Consumer

@@ -114,11 +114,14 @@ def save_schema(df):
     :param df: Spark DataFrame
     '''
     schema_path = PROFILING_OUTPUT_PATH / "schema.txt"
-
     logger.info(f"Sauvegarde du schéma dans {schema_path}")
 
-    with open(schema_path, "w") as f:
-        f.write(df._jdf.schema().treeString())
+    try : 
+        with open(schema_path, "w") as f:
+            f.write(df._jdf.schema().treeString())
+    except Exception as e:
+        logger.error(f"Erreur lors de la sauvegarde du schéma: {e}")
+        raise
 
 def save_sample_data(df, n=100):
     '''
@@ -128,17 +131,20 @@ def save_sample_data(df, n=100):
     :param n: Number of rows to save
     '''
     sample_path = PROFILING_OUTPUT_PATH / "sample_data"
-
     logger.info(f"Sauvegarde d'un échantillon de {n} lignes dans {sample_path}")
 
-    (
-        df.limit(n)
-        .coalesce(1)
-        .write
-        .mode("overwrite")
-        .option("header", True)
-        .csv(str(sample_path))
-    )
+    try :
+        (
+            df.limit(n)
+            .coalesce(1)
+            .write
+            .mode("overwrite")
+            .option("header", True)
+            .csv(str(sample_path))
+        )
+    except Exception as e:
+        logger.error(f"Erreur lors de la sauvegarde de l'échantillon: {e}")
+        raise
 
 def save_profiling_results(null_stats, numeric_stats):
     '''
@@ -152,25 +158,29 @@ def save_profiling_results(null_stats, numeric_stats):
     null_stats_path = PROFILING_OUTPUT_PATH / "null_statistics"
     numeric_stats_path = PROFILING_OUTPUT_PATH / "numeric_statistics"
 
-    logger.info(f"Sauvegarde des statistiques de nulls dans {null_stats_path}")
-    (
-        null_stats
-        .coalesce(1)  # create only one CSV
-        .write
-        .mode("overwrite")
-        .option("header", True)
-        .csv(str(null_stats_path))
-    )
+    try :
+        logger.info(f"Sauvegarde des statistiques de nulls dans {null_stats_path}")
+        (
+            null_stats
+            .coalesce(1)  # create only one CSV
+            .write
+            .mode("overwrite")
+            .option("header", True)
+            .csv(str(null_stats_path))
+        )
 
-    logger.info(f"Sauvegarde des statistiques numériques : {numeric_stats_path}")
-    (
-        numeric_stats
-        .coalesce(1)
-        .write
-        .mode("overwrite")
-        .option("header", True)
-        .csv(str(numeric_stats_path))
-    )
+        logger.info(f"Sauvegarde des statistiques numériques : {numeric_stats_path}")
+        (
+            numeric_stats
+            .coalesce(1)
+            .write
+            .mode("overwrite")
+            .option("header", True)
+            .csv(str(numeric_stats_path))
+        )
+    except Exception as e:
+        logger.error(f"Erreur lors de la sauvegarde des statistiques: {e}")
+        raise
 
 # ============================
 # Main
