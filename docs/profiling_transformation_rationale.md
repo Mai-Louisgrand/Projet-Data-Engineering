@@ -6,9 +6,9 @@ Le fichier source OWID contient un large spectre de données COVID
 
 Un profiling exploratoire a été mené en amont des traitements Spark
 afin de :
-- identifier les anomalies bloquantes pour un traitement batch et streaming,
-- réduire le schéma aux données strictement nécessaires au cas d’usage vaccination,
-- garantir la cohérence des indicateurs calculés dans Spark.
+- **identifier les anomalies bloquantes** pour un traitement batch et streaming,
+- **réduire le schéma** aux données strictement nécessaires au cas d’usage vaccination,
+- **garantir la cohérence des indicateurs calculés** dans Spark.
 
 ## Méthodologie de profiling
 ### 1. Suppression des lignes non identifiées
